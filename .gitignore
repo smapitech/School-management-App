@@ -1,0 +1,95 @@
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+
+# PHP dependencies
+/vendor/
+
+# Node dependencies
+/node_modules/
+
+# Laravel runtime/cache
+/storage/*.key
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/views/*
+/storage/logs/*
+/storage/chrome-*/
+/storage/backups/
+/storage/backup*/
+/storage/sessions/
+/bootstrap/cache/*
+
+# User uploads / sensitive school data
+/storage/app/private/
+/storage/app/uploads/
+/storage/app/students/
+/storage/app/parents/
+/storage/app/documents/
+/storage/app/reports/
+/storage/app/results/
+/storage/app/certificates/
+
+# Public storage symlink / generated assets
+/public/storage
+/public/hot
+/public/build
+
+# Database files and dumps
+*.sqlite
+*.sqlite3
+*.sql
+*.dump
+database/*.sqlite
+database/*.sqlite3
+
+# Backups
+*.bak
+*.backup
+*.old
+*.zip
+*.zipxx
+*.tar
+*.tar.gz
+*.7z
+
+# Logs
+*.log
+*.err
+*.out
+
+# Testing / coverage
+.phpunit.result.cache
+.phpunit.cache/
+coverage/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Credentials and certificates
+auth.json
+.npmrc
+credentials.json
+service-account.json
+client_secret*.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Temporary files
+*.tmp
+*.temp
+/tmp_*.php
+
+# Optional local tooling
+/.phpunit.cache/
+/.phpactor.json

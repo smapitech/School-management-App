@@ -1,0 +1,703 @@
+<?php include __DIR__ . '/nav.php'; ?>
+
+<?php
+    $formatNumber = static function (?float $value, int $precision = 2): string {
+        if ($value === null) {
+            return '-';
+        }
+
+        $formatted = number_format($value, $precision, '.', '');
+        return rtrim(rtrim($formatted, '0'), '.');
+    };
+
+    $formatDate = static function (?string $date): string {
+        $date = trim((string) $date);
+        if ($date === '') {
+            return '';
+        }
+
+        $timestamp = strtotime($date);
+        return $timestamp ? date('d M Y', $timestamp) : $date;
+    };
+
+    $studentData = (array) ($student ?? []);
+    $summaryData = (array) ($summary ?? []);
+    $attendanceData = (array) ($attendance ?? []);
+    $templateData = (array) ($template ?? []);
+    $schoolData = (array) ($school ?? []);
+    $distributionRows = array_values((array) ($distributions ?? []));
+    $subjectRows = array_values((array) ($subjects ?? []));
+
+    // When a real report is generated, do not rely only on the global distribution
+    // list. Some installations have marks available per subject even when the
+    // distribution payload is incomplete. Derive headers from actual marks so
+    // Test, Assignment, Exam and similar columns do not disappear.
+    if (!$distributionRows) {
+        $seenDistributions = [];
+        foreach ($subjectRows as $subjectRow) {
+            foreach ((array) ($subjectRow['distribution_marks'] ?? []) as $markRow) {
+                $distributionId = (int) ($markRow['distribution_id'] ?? 0);
+                if ($distributionId <= 0 || isset($seenDistributions[$distributionId])) {
+                    continue;
+                }
+                $seenDistributions[$distributionId] = true;
+                $distributionRows[] = [
+                    'id' => $distributionId,
+                    'name' => trim((string) ($markRow['name'] ?? ('Column ' . $distributionId))),
+                    'max_mark' => (float) ($markRow['max_mark'] ?? 0),
+                ];
+            }
+        }
+    }
+
+    $findDistributionMark = static function (array $subjectRow, int $distributionId): array {
+        foreach ((array) ($subjectRow['distribution_marks'] ?? []) as $markRow) {
+            if ((int) ($markRow['distribution_id'] ?? 0) === $distributionId) {
+                return (array) $markRow;
+            }
+        }
+
+        return ['display' => '-', 'mark' => null, 'max_mark' => null];
+    };
+
+    $gradeRows = array_values((array) ($gradeScale ?? []));
+    $show = static fn (string $key, int $default = 1): bool => (int) ($templateData[$key] ?? $default) === 1;
+    $hasMarks = !empty($summaryData['has_marks']);
+    $reportDateFormat = trim((string) ($templateData['print_date_format'] ?? 'd.M.Y')) ?: 'd.M.Y';
+    $reportDate = date($reportDateFormat);
+    $reportWidth = max(480, (int) ($templateData['page_width'] ?? 794));
+    $reportHeight = max(480, (int) ($templateData['page_height'] ?? 1123));
+    $reportStyle = implode('; ', array_filter([
+        '--report-page-width: ' . $reportWidth . 'px',
+        '--report-page-height: ' . $reportHeight . 'px',
+        '--report-font-family: ' . trim((string) ($templateData['font_family'] ?? 'Arial, Helvetica, sans-serif')),
+        '--report-base-font-size: ' . max(8, (int) ($templateData['base_font_size'] ?? 12)) . 'px',
+        '--report-table-font-size: ' . max(8, (int) ($templateData['table_font_size'] ?? 11)) . 'px',
+        '--report-header-font-size: ' . max(10, (int) ($templateData['header_font_size'] ?? 18)) . 'px',
+        '--report-line-height: ' . max(1.0, (float) ($templateData['line_height'] ?? 1.35)),
+        '--report-border-width: ' . max(0, (int) ($templateData['border_width'] ?? 2)) . 'px',
+        '--report-border-color: ' . trim((string) ($templateData['border_color'] ?? '#222222')),
+        '--report-table-border-color: ' . trim((string) ($templateData['table_border_color'] ?? '#222222')),
+        '--report-table-header-bg: ' . trim((string) ($templateData['table_header_background'] ?? '#eaf2ef')),
+        '--report-watermark-opacity: ' . max(0.0, min(1.0, (float) ($templateData['watermark_opacity'] ?? 0.06))),
+        '--report-watermark-size: ' . max(0, min(100, (int) ($templateData['watermark_size'] ?? 70))) . '%',
+        '--report-logo-width: ' . max(0, (int) ($templateData['logo_width'] ?? 420)) . 'px',
+        '--report-photo-width: ' . max(48, (int) ($templateData['student_photo_width'] ?? 110)) . 'px',
+        '--report-photo-height: ' . max(48, (int) ($templateData['student_photo_height'] ?? 130)) . 'px',
+        '--report-comment-height: ' . max(40, (int) ($templateData['comment_box_height'] ?? 84)) . 'px',
+        '--report-principal-signature-width: ' . max(40, (int) ($templateData['principal_signature_width'] ?? 120)) . 'px',
+        '--report-class-teacher-signature-width: ' . max(40, (int) ($templateData['class_teacher_signature_width'] ?? 120)) . 'px',
+        '--report-school-stamp-width: ' . max(40, (int) ($templateData['school_stamp_width'] ?? 120)) . 'px',
+    ]));
+
+    $showAttendance = $show('show_attendance', 1);
+    $showWorkingDays = $show('show_working_days', 1);
+    $showDaysAttended = $show('show_days_attended', 1);
+    $showAttendancePercentage = $show('show_attendance_percentage', 1);
+    $showGradeScale = $show('show_grading_scale', 1);
+    $showGradeMin = $show('show_min_percentage', 1);
+    $showGradeMax = $show('show_max_percentage', 1);
+    $showGradePointScale = $show('show_grade_point_scale', 1);
+    $showGradeRemarkScale = $show('show_grade_remark', 1);
+    $showPosition = $show('position', 1);
+    $showCumulative = $show('cumulative_average', 1);
+    $showClassAverage = $show('class_average', 1);
+    $showSubjectPosition = $show('show_subject_position', 1);
+    $showGrandTotal = $show('show_grand_total', 1);
+    $showTotalObtainable = $show('show_total_obtainable', 1);
+    $showAverage = $show('show_average', 1);
+    $showGrandTotalWords = $show('show_grand_total_in_words', 1);
+    $showGpa = $show('show_gpa', 1);
+    $showResultStatus = $show('show_result_status', 1);
+    $showStudentPhoto = $show('show_student_photo', 1);
+    $showBiodataSection = $show('show_biodata_section', 1);
+    $showRegisterNumber = $show('show_register_number', 1);
+    $showRollNumber = $show('show_roll_number', 0);
+    $showFatherName = $show('show_father_name', 1);
+    $showMotherName = $show('show_mother_name', 1);
+    $showAdmissionDate = $show('show_admission_date', 1);
+    $showDateOfBirth = $show('show_date_of_birth', 1);
+    $showGender = $show('show_gender', 1);
+    $showSchoolLogo = $show('show_school_logo', 1);
+    $showSchoolName = $show('show_school_name', 1);
+    $showSchoolAddress = $show('show_school_address', 1);
+    $showSchoolPhone = $show('show_school_phone', 1);
+    $showSchoolEmail = $show('show_school_email', 1);
+    $showPrincipalComment = $show('show_principal_comment', 1);
+    $showTeacherComment = $show('show_teacher_comment', 1);
+    $showPrincipalSignature = $show('show_principal_signature', 1);
+    $showClassTeacherSignature = $show('show_class_teacher_signature', 1);
+    $showSchoolStamp = $show('show_school_stamp', 1);
+    $showPrintDate = $show('show_print_date', 1);
+    $showSubjectTable = $show('show_subject_table', 1);
+    $showSubjectName = $show('show_subject_name', 1);
+    $showDynamicColumns = $show('show_dynamic_mark_distribution_columns', 1);
+    $showTotal = $show('show_total', 1);
+    $showGrade = $show('show_grade', 1);
+    $showGradePoint = $show('show_grade_point', 1);
+    $showRemark = $show('show_remark', 1);
+
+    $photoStyle = strtolower((string) ($templateData['photo_style'] ?? 'Square')) === 'round' ? 'is-round' : '';
+    $pageLayout = strtolower((string) ($templateData['page_layout'] ?? 'Portrait'));
+    $schoolLogo = trim((string) ($templateData['logo'] ?? '')) ?: trim((string) ($schoolData['logo'] ?? ''));
+    $studentPhoto = trim((string) ($studentData['profile_picture'] ?? ''));
+    $schoolName = trim((string) ($schoolData['name'] ?? 'Smapis School'));
+    $schoolAddress = trim((string) ($schoolData['address'] ?? ''));
+    $schoolPhone = trim((string) ($schoolData['phone'] ?? ''));
+    $schoolEmail = trim((string) ($schoolData['email'] ?? ''));
+    $schoolShortName = trim((string) ($schoolData['short_name'] ?? 'SM'));
+    $teacherCommentDraftData = (array) ($teacherCommentDraft ?? []);
+    $teacherCommentDraftExists = !empty($teacherCommentDraftData['exists']);
+    $teacherRemarkLines = array_values(array_filter((array) ($teacherRemarkLines ?? [])));
+    $teacherCommentLines = array_values(array_filter((array) ($teacherCommentLines ?? [])));
+    $fullName = trim((string) ($studentData['full_name'] ?? ''));
+    $registrationNo = trim((string) ($studentData['registration_no'] ?? ''));
+    $rollNumber = trim((string) ($studentData['roll_number'] ?? ''));
+    $fatherName = trim((string) ($studentData['father_name'] ?? ''));
+    $motherName = trim((string) ($studentData['mother_name'] ?? ''));
+    $admissionDate = $formatDate($studentData['admission_date'] ?? '');
+    $dateOfBirth = $formatDate($studentData['date_of_birth'] ?? '');
+    $classSection = trim((string) (($studentData['class_name'] ?? '') . ' ' . ($studentData['section'] ?? '')));
+    $resultStatus = (string) ($summaryData['result_status'] ?? 'No marks');
+    $principalCommentText = trim((string) ($principalComment ?? ''));
+    $principalCommentHtml = $principalCommentText !== '' ? nl2br(e($principalCommentText)) : '';
+    $teacherRemarkText = $teacherCommentDraftExists
+        ? trim((string) ($teacherCommentDraftData['teacher_remark'] ?? ''))
+        : implode("\n", $teacherRemarkLines);
+    $teacherCommentText = $teacherCommentDraftExists
+        ? trim((string) ($teacherCommentDraftData['teacher_comment'] ?? ''))
+        : implode("\n", $teacherCommentLines);
+    $teacherRemarkHtml = $teacherRemarkText !== '' ? nl2br(e($teacherRemarkText)) : '';
+    $teacherCommentHtml = $teacherCommentText !== '' ? nl2br(e($teacherCommentText)) : '';
+    $attendanceNote = !empty($attendanceData['available']) ? '' : trim((string) ($attendanceData['note'] ?? 'Attendance not available.'));
+
+    $summaryMetric = static function (?float $value, bool $percent = false) use ($formatNumber, $hasMarks): string {
+        if ($value === null) {
+            return '-';
+        }
+
+        if (!$hasMarks && abs($value) < 0.00001) {
+            return '-';
+        }
+
+        return $formatNumber($value) . ($percent ? '%' : '');
+    };
+
+    $summaryText = static function (?string $value) use ($hasMarks): string {
+        $value = trim((string) $value);
+
+        if ($value === '' || (!$hasMarks && $value === '0')) {
+            return '-';
+        }
+
+        return $value;
+    };
+
+    $bioRows = [];
+    $bioRows[] = [
+        ['label' => 'Name', 'value' => $fullName, 'visible' => true],
+        ['label' => 'Register No', 'value' => $registrationNo, 'visible' => $showRegisterNumber],
+    ];
+    $bioRows[] = [
+        ['label' => 'Roll Number', 'value' => $rollNumber, 'visible' => $showRollNumber],
+        ['label' => 'Father Name', 'value' => $fatherName, 'visible' => $showFatherName],
+    ];
+    $bioRows[] = [
+        ['label' => 'Mother Name', 'value' => $motherName, 'visible' => $showMotherName],
+        ['label' => 'Admission Date', 'value' => $admissionDate, 'visible' => $showAdmissionDate],
+    ];
+    $bioRows[] = [
+        ['label' => 'Date of Birth', 'value' => $dateOfBirth, 'visible' => $showDateOfBirth],
+        ['label' => 'Class and Section', 'value' => $classSection, 'visible' => true],
+    ];
+    if ($showGender) {
+        $bioRows[] = [
+            ['label' => 'Gender', 'value' => trim((string) ($studentData['gender'] ?? '')), 'visible' => true],
+            ['label' => '', 'value' => '', 'visible' => false],
+        ];
+    }
+
+    $summaryRows = [];
+    if ($showGrandTotal || $showTotalObtainable) {
+        $summaryRows[] = [
+            $showGrandTotal ? ['label' => 'Grand Total', 'value' => $summaryMetric((float) ($summaryData['grand_total'] ?? 0)), 'visible' => true] : null,
+            $showTotalObtainable ? ['label' => 'Total Obtainable', 'value' => $summaryMetric((float) ($summaryData['grand_total_obtainable'] ?? 0)), 'visible' => true] : null,
+        ];
+    }
+    if ($showAverage || $showGpa) {
+        $summaryRows[] = [
+            $showAverage ? ['label' => 'Average Percentage', 'value' => $summaryMetric(isset($summaryData['average_percentage']) ? (float) $summaryData['average_percentage'] : null, true), 'visible' => true] : null,
+            $showGpa ? ['label' => 'GPA', 'value' => $summaryMetric(isset($summaryData['gpa']) ? (float) $summaryData['gpa'] : null), 'visible' => true] : null,
+        ];
+    }
+    if ($showGrandTotalWords || $showResultStatus) {
+        $summaryRows[] = [
+            $showGrandTotalWords ? ['label' => 'Grand Total in Words', 'value' => $summaryText((string) ($summaryData['grand_total_in_words'] ?? '')), 'visible' => true] : null,
+            $showResultStatus ? ['label' => 'Result Status', 'value' => $summaryText($resultStatus), 'visible' => true] : null,
+        ];
+    }
+    if ($showPosition || $showCumulative) {
+        $summaryRows[] = [
+            $showPosition ? ['label' => 'Position', 'value' => $summaryText((string) (($summaryData['position_label'] ?? '') ?: ($summaryData['position'] ?? ''))), 'visible' => true] : null,
+            $showCumulative ? ['label' => 'Cumulative Average', 'value' => $summaryMetric(isset($summaryData['cumulative_average']) ? (float) $summaryData['cumulative_average'] : null, true), 'visible' => true] : null,
+        ];
+    }
+    if ($showClassAverage) {
+        $summaryRows[] = [
+            ['label' => 'Class Average', 'value' => $summaryMetric(isset($summaryData['class_average']) ? (float) $summaryData['class_average'] : null, true), 'visible' => true],
+            null,
+        ];
+    }
+
+    $subjectColumnCount = 0;
+    if ($showSubjectName) {
+        $subjectColumnCount++;
+    }
+    if ($showDynamicColumns) {
+        $subjectColumnCount += count($distributionRows);
+    }
+    if ($showTotal) {
+        $subjectColumnCount++;
+    }
+    if ($showGrade) {
+        $subjectColumnCount++;
+    }
+    if ($showGradePoint) {
+        $subjectColumnCount++;
+    }
+    if ($showRemark) {
+        $subjectColumnCount++;
+    }
+    if ($showClassAverage) {
+        $subjectColumnCount++;
+    }
+    if ($showSubjectPosition) {
+        $subjectColumnCount++;
+    }
+    $subjectEmptyColspan = max(1, $subjectColumnCount);
+
+    $logoMarkup = '';
+    if ($showSchoolLogo) {
+        if ($schoolLogo !== '') {
+            $logoMarkup = '<img class="report-sheet-logo" src="' . e($schoolLogo) . '" alt="' . e($schoolName ?: 'School Logo') . '">';
+        } else {
+            $logoMarkup = '<div class="report-sheet-logo report-sheet-logo-placeholder" aria-hidden="true"></div>';
+        }
+    }
+
+    $photoMarkup = $showStudentPhoto
+        ? ($studentPhoto !== ''
+            ? '<img src="' . e($studentPhoto) . '" alt="' . e($fullName !== '' ? $fullName : 'Student Photo') . '">'
+            : '<div class="report-sheet-photo-empty" aria-hidden="true"></div>')
+        : '<div class="report-sheet-photo-empty" aria-hidden="true"></div>';
+
+    $signatureMarkup = static function (string $path, string $label, int $width = 120, bool $isStamp = false): string {
+        $path = trim($path);
+        $width = max(40, $width);
+
+        if ($path !== '') {
+            return '<img src="' . e($path) . '" alt="' . e($label) . '" style="max-width: ' . $width . 'px; max-height: 90px;">';
+        }
+
+        if ($isStamp) {
+            return '<div class="report-sheet-stamp" style="max-width: ' . $width . 'px;"></div>';
+        }
+
+        return '<span class="signature-line" style="width: ' . $width . 'px;"></span>';
+    };
+
+    $tokenValues = [
+        'school_name' => $schoolName,
+        'institute_name' => $schoolName,
+        'school_logo' => $logoMarkup,
+        'logo' => $logoMarkup,
+        'school_address' => $schoolAddress,
+        'institute_address' => $schoolAddress,
+        'school_phone' => $schoolPhone,
+        'school_mobile_no' => $schoolPhone,
+        'institute_mobile_no' => $schoolPhone,
+        'school_email' => $schoolEmail,
+        'institute_email' => $schoolEmail,
+        'student_name' => $fullName,
+        'name' => $fullName,
+        'register_no' => $registrationNo,
+        'roll_number' => $rollNumber,
+        'father_name' => $fatherName,
+        'mother_name' => $motherName,
+        'admission_date' => $admissionDate,
+        'date_of_birth' => $dateOfBirth,
+        'birthday' => $dateOfBirth,
+        'class' => trim((string) ($studentData['class_name'] ?? '')),
+        'section' => trim((string) ($studentData['section'] ?? '')),
+        'class_section' => $classSection,
+        'gender' => trim((string) ($studentData['gender'] ?? '')),
+        'student_photo' => $photoMarkup,
+        'term' => trim((string) ($schoolTerm ?? '')),
+        'school_term' => trim((string) ($schoolTerm ?? '')),
+        'session' => trim((string) ($schoolSession ?? '')),
+        'school_session' => trim((string) ($schoolSession ?? '')),
+        'academic_session' => trim((string) ($schoolSession ?? '')),
+        'exam_name' => 'Report Sheet Preview',
+        'print_date' => $showPrintDate ? $reportDate : '',
+        'subject_table' => '',
+        'grand_total' => $summaryMetric(isset($summaryData['grand_total']) ? (float) $summaryData['grand_total'] : null),
+        'total_obtainable' => $summaryMetric(isset($summaryData['grand_total_obtainable']) ? (float) $summaryData['grand_total_obtainable'] : null),
+        'average' => $summaryMetric(isset($summaryData['average_percentage']) ? (float) $summaryData['average_percentage'] : null, true),
+        'average_percentage' => $summaryMetric(isset($summaryData['average_percentage']) ? (float) $summaryData['average_percentage'] : null, true),
+        'grand_total_words' => $summaryText((string) ($summaryData['grand_total_in_words'] ?? '')),
+        'grand_total_in_words' => $summaryText((string) ($summaryData['grand_total_in_words'] ?? '')),
+        'gpa' => $summaryMetric(isset($summaryData['gpa']) ? (float) $summaryData['gpa'] : null),
+        'result_status' => $summaryText($resultStatus),
+        'position' => $summaryText((string) (($summaryData['position_label'] ?? '') ?: ($summaryData['position'] ?? ''))),
+        'attendance_working_days' => $attendanceData['available'] ? (string) ($attendanceData['working_days'] ?? '') : 'Attendance not available',
+        'attendance_days_attended' => $attendanceData['available'] ? (string) ($attendanceData['days_attended'] ?? '') : 'Attendance not available',
+        'attendance_percentage' => $attendanceData['available']
+            ? $summaryMetric(isset($attendanceData['percentage']) ? (float) $attendanceData['percentage'] : null, true)
+            : 'Attendance not available',
+        'grading_scale' => '',
+        'principal_comment' => $principalCommentHtml,
+        'principal_comments' => $principalCommentHtml,
+        'teacher_comment' => $teacherCommentHtml,
+        'teacher_comments' => $teacherCommentHtml,
+        'teacher_remark' => $teacherRemarkHtml,
+        'principal_signature' => $signatureMarkup((string) ($templateData['left_signature'] ?? ''), 'Principal Signature', (int) ($templateData['principal_signature_width'] ?? 120)),
+        'class_teacher_signature' => $signatureMarkup((string) ($templateData['middle_signature'] ?? ''), 'Class Teacher Signature', (int) ($templateData['class_teacher_signature_width'] ?? 120)),
+        'school_stamp' => $signatureMarkup((string) ($templateData['right_signature'] ?? ''), 'School Stamp', (int) ($templateData['school_stamp_width'] ?? 120), true),
+    ];
+
+    $replace = [];
+    foreach ($tokenValues as $token => $value) {
+        $replace['[' . $token . ']'] = $value;
+        $replace['{' . $token . '}'] = $value;
+    }
+
+    $headerContent = trim((string) ($templateData['header_content'] ?? ''));
+    $footerContent = trim((string) ($templateData['footer_content'] ?? ''));
+    $headerHtml = $headerContent !== ''
+        ? strtr($headerContent, $replace)
+        : '<div class="report-sheet-header">' .
+            '<div class="report-sheet-brand">' .
+                $logoMarkup .
+                '<div class="report-sheet-title">' .
+                    ($showSchoolName && $schoolName !== '' ? '<h2>' . e($schoolName) . '</h2>' : '') .
+                    ($showSchoolAddress && $schoolAddress !== '' ? '<p>' . e($schoolAddress) . '</p>' : '') .
+                    (($showSchoolPhone && $schoolPhone !== '') || ($showSchoolEmail && $schoolEmail !== '')
+                        ? '<p>' . e(trim(($showSchoolPhone ? $schoolPhone : '') . (($showSchoolPhone && $schoolPhone !== '' && $showSchoolEmail && $schoolEmail !== '') ? ' | ' : '') . ($showSchoolEmail ? $schoolEmail : ''))) . '</p>'
+                        : '') .
+                '</div>' .
+            '</div>' .
+            '<div class="report-sheet-meta">' .
+                '<strong>' . e('Report Sheet Preview') . '</strong>' .
+                '<span>' . e($classSection !== '' ? $classSection : 'No class selected') . '</span>' .
+                '<span>' . e(trim((string) ($schoolTerm ?? '')) . ' ' . trim((string) ($schoolSession ?? ''))) . '</span>' .
+                ($showPrintDate ? '<span>' . e($reportDate) . '</span>' : '') .
+            '</div>' .
+        '</div>';
+    $footerHtml = $footerContent !== '' ? strtr($footerContent, $replace) : '';
+?>
+
+<section class="module-hero report-sheet-shell no-print">
+    <div>
+        <p class="eyebrow">Report Sheet Preview</p>
+        <h2><?= e($studentData['full_name'] ?? 'Student Report Sheet') ?></h2>
+        <p><?= e(trim(($schoolData['name'] ?? 'Smapis School') . ' - ' . trim(($studentData['class_name'] ?? '') . ' ' . ($studentData['section'] ?? '')) . ' - ' . ($schoolTerm ?? '') . ' ' . ($schoolSession ?? ''))) ?></p>
+    </div>
+    <div class="preview-links">
+        <a class="secondary-action" href="<?= e($backUrl ?? '/exams/result-preview') ?>">Back to Class Preview</a>
+        <button class="secondary-action" type="button" data-print>Print Report Sheet</button>
+    </div>
+</section>
+
+<?php if (!empty($warnings)): ?>
+    <?php foreach ((array) $warnings as $warning): ?>
+        <div class="alert-error no-print"><?= e($warning) ?></div>
+    <?php endforeach; ?>
+<?php endif; ?>
+
+<?php if (!empty($teacherCommentsEditable)): ?>
+    <section class="report-sheet-comment-room no-print">
+        <div class="report-sheet-comment-room-head">
+            <div>
+                <p class="eyebrow">Teacher Comment Room</p>
+                <h3>Backend comment space for this report sheet</h3>
+                <p>Use this space to prepare the teacher remark and comment before printing the report sheet.</p>
+            </div>
+            <?php if (!empty($teacherCommentDraftData['updated_at'])): ?>
+                <div class="report-sheet-comment-room-meta">
+                    <span>Last saved</span>
+                    <strong><?= e((string) $teacherCommentDraftData['updated_at']) ?></strong>
+                </div>
+            <?php endif; ?>
+        </div>
+        <form class="report-sheet-comment-form" method="post" action="/exams/result-preview/student/comments">
+            <?= csrf_field() ?>
+            <input type="hidden" name="class_name" value="<?= e((string) ($studentData['class_name'] ?? '')) ?>">
+            <input type="hidden" name="section" value="<?= e((string) ($studentData['section'] ?? '')) ?>">
+            <input type="hidden" name="school_term" value="<?= e((string) ($schoolTerm ?? '')) ?>">
+            <input type="hidden" name="school_session" value="<?= e((string) ($schoolSession ?? '')) ?>">
+            <input type="hidden" name="student_id" value="<?= e((string) ($studentData['id'] ?? 0)) ?>">
+            <input type="hidden" name="template_id" value="<?= e((string) ($templateData['id'] ?? 0)) ?>">
+            <div class="report-sheet-comment-grid">
+                <label>
+                    <span>Teacher Remark</span>
+                    <textarea name="teacher_remark" rows="4" placeholder="Pass, improve, excellent..."><?= e($teacherRemarkText) ?></textarea>
+                </label>
+                <label>
+                    <span>Teacher Comment</span>
+                    <textarea name="teacher_comment" rows="4" placeholder="Teacher comment for the report sheet..."><?= e($teacherCommentText) ?></textarea>
+                </label>
+            </div>
+            <div class="report-sheet-comment-actions">
+                <button class="primary-action" type="submit" name="draft_action" value="save">Save Comments</button>
+                <button class="secondary-action" type="submit" name="draft_action" value="reset">Reset Draft</button>
+            </div>
+        </form>
+    </section>
+<?php endif; ?>
+
+<section class="marksheet-preview <?= e($pageLayout) ?> report-sheet-sheet">
+    <?php if (!empty($templateData['background'])): ?>
+        <img class="marksheet-bg" src="<?= e($templateData['background']) ?>" alt="">
+    <?php endif; ?>
+    <div class="marksheet-paper report-sheet-paper" style="padding: <?= e((int) ($templateData['top_space'] ?? 20)) ?>px <?= e((int) ($templateData['right_space'] ?? 20)) ?>px <?= e((int) ($templateData['bottom_space'] ?? 20)) ?>px <?= e((int) ($templateData['left_space'] ?? 20)) ?>px;">
+        <header>
+            <?= $headerHtml ?>
+        </header>
+
+        <?php if ($showBiodataSection): ?>
+            <section class="report-sheet-bio">
+                <div class="report-sheet-photo <?= e($photoStyle) ?>">
+                    <?= $photoMarkup ?>
+                </div>
+                <div class="report-sheet-info">
+                    <table>
+                        <tbody>
+                            <?php foreach ($bioRows as $row): ?>
+                                <tr>
+                                    <?php foreach ($row as $cell): ?>
+                                        <?php if (!empty($cell['visible'])): ?>
+                                            <th><?= e((string) ($cell['label'] ?? '')) ?></th>
+                                            <td><?= e(trim((string) ($cell['value'] ?? ''))) ?></td>
+                                        <?php else: ?>
+                                            <th></th>
+                                            <td></td>
+                                        <?php endif; ?>
+                                    <?php endforeach; ?>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        <?php endif; ?>
+
+        <?php if ($showSubjectTable): ?>
+            <section class="table-wrap report-sheet-subject-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <?php if ($showSubjectName): ?><th class="subject-col">Subject</th><?php endif; ?>
+                            <?php if ($showDynamicColumns): ?>
+                                <?php foreach ($distributionRows as $distribution): ?>
+                                    <th class="distribution-col center"><?= e($distribution['name'] ?? '') ?><br><span class="report-sheet-note"><?= e($distribution['max_mark'] ?? '') ?></span></th>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                            <?php if ($showTotal): ?><th class="numeric">Total</th><?php endif; ?>
+                            <?php if ($showGrade): ?><th class="center">Grade</th><?php endif; ?>
+                            <?php if ($showGradePoint): ?><th class="numeric">Point</th><?php endif; ?>
+                            <?php if ($showRemark): ?><th class="remark-col">Remark</th><?php endif; ?>
+                            <?php if ($showClassAverage): ?><th class="numeric">Class Avg</th><?php endif; ?>
+                            <?php if ($showSubjectPosition): ?><th class="center">Position</th><?php endif; ?>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($subjectRows as $subjectRow): ?>
+                            <?php
+                                $subjectStatus = (string) ($subjectRow['status'] ?? '');
+                                $subjectCompleted = !empty($subjectRow['completed']);
+                                $subjectName = trim((string) ($subjectRow['subject_name'] ?? ''));
+                                $subjectTotal = $subjectStatus === 'No marks' ? '-' : $formatNumber((float) ($subjectRow['total'] ?? 0));
+                                $subjectGrade = $subjectStatus === 'No marks' ? '-' : ($subjectCompleted ? (string) ($subjectRow['grade'] ?? '') : 'Incomplete');
+                                $subjectPoint = $subjectStatus === 'No marks' || !$subjectCompleted ? '-' : $formatNumber((float) ($subjectRow['point'] ?? 0));
+                                $subjectRemark = $subjectStatus === 'No marks' ? '-' : ($subjectCompleted ? (string) ($subjectRow['remark'] ?? '') : 'Incomplete');
+                                $subjectAverage = $subjectRow['class_average'] !== null ? $formatNumber((float) $subjectRow['class_average']) . '%' : '-';
+                                $subjectPosition = !empty($subjectRow['subject_position_label']) ? $subjectRow['subject_position_label'] : '-';
+                            ?>
+                            <tr>
+                                <?php if ($showSubjectName): ?><td class="subject-col"><?= e($subjectName) ?></td><?php endif; ?>
+                                <?php if ($showDynamicColumns): ?>
+                                    <?php foreach ($distributionRows as $distribution): ?>
+                                        <?php $distributionMark = $findDistributionMark((array) $subjectRow, (int) ($distribution['id'] ?? 0)); ?>
+                                        <td class="distribution-col center"><?= e($distributionMark['display'] ?? '-') ?></td>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                                <?php if ($showTotal): ?><td class="numeric"><?= e($subjectTotal) ?></td><?php endif; ?>
+                                <?php if ($showGrade): ?><td class="center"><?= e($subjectGrade ?: '-') ?></td><?php endif; ?>
+                                <?php if ($showGradePoint): ?><td class="numeric"><?= e($subjectPoint) ?></td><?php endif; ?>
+                                <?php if ($showRemark): ?><td class="remark-col"><?= e($subjectRemark ?: '-') ?></td><?php endif; ?>
+                                <?php if ($showClassAverage): ?><td class="numeric"><?= e($subjectAverage) ?></td><?php endif; ?>
+                                <?php if ($showSubjectPosition): ?><td class="center"><?= e($subjectPosition) ?></td><?php endif; ?>
+                            </tr>
+                        <?php endforeach; ?>
+                        <?php if (empty($subjectRows)): ?>
+                            <tr>
+                                <td colspan="<?= e($subjectEmptyColspan) ?>"><?= $hasMarks ? 'No subject results available.' : 'No marks have been entered for this student yet.' ?></td>
+                            </tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </section>
+        <?php endif; ?>
+
+        <?php if (!empty($summaryRows)): ?>
+            <section class="report-sheet-summary">
+                <table>
+                    <tbody>
+                        <?php foreach ($summaryRows as $row): ?>
+                            <tr>
+                                <?php for ($index = 0; $index < 2; $index++): ?>
+                                    <?php $cell = $row[$index] ?? null; ?>
+                                    <?php if (!empty($cell['visible'])): ?>
+                                        <th><?= e((string) ($cell['label'] ?? '')) ?></th>
+                                        <td><?= e((string) ($cell['value'] ?? '')) ?></td>
+                                    <?php else: ?>
+                                        <th></th>
+                                        <td></td>
+                                    <?php endif; ?>
+                                <?php endfor; ?>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </section>
+        <?php endif; ?>
+
+        <?php if ($showAttendance || $showGradeScale): ?>
+            <div class="marksheet-two-col">
+                <?php if ($showAttendance): ?>
+                    <table>
+                        <tbody>
+                            <tr>
+                                <th colspan="2">Attendance</th>
+                            </tr>
+                            <?php if (!empty($attendanceData['available'])): ?>
+                                <?php if ($showWorkingDays): ?>
+                                    <tr>
+                                        <td>No. of working days</td>
+                                        <td><?= e((string) ($attendanceData['working_days'] ?? '')) ?></td>
+                                    </tr>
+                                <?php endif; ?>
+                                <?php if ($showDaysAttended): ?>
+                                    <tr>
+                                        <td>No. of days attended</td>
+                                        <td><?= e($formatNumber((float) ($attendanceData['days_attended'] ?? 0))) ?></td>
+                                    </tr>
+                                <?php endif; ?>
+                                <?php if ($showAttendancePercentage): ?>
+                                    <tr>
+                                        <td>Attendance percentage</td>
+                                        <td><?= e($formatNumber((float) ($attendanceData['percentage'] ?? 0))) ?>%</td>
+                                    </tr>
+                                <?php endif; ?>
+                            <?php else: ?>
+                                <tr>
+                                    <td colspan="2"><?= e($attendanceNote ?: 'Attendance not available.') ?></td>
+                                </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+
+                <?php if ($showGradeScale): ?>
+                    <table>
+                        <tbody>
+                            <tr>
+                                <th>Grade</th>
+                                <?php if ($showGradeMin): ?><th>Min %</th><?php endif; ?>
+                                <?php if ($showGradeMax): ?><th>Max %</th><?php endif; ?>
+                                <?php if ($showGradePointScale): ?><th>Point</th><?php endif; ?>
+                                <?php if ($showGradeRemarkScale): ?><th>Remark</th><?php endif; ?>
+                            </tr>
+                            <?php foreach ($gradeRows as $gradeRow): ?>
+                                <tr>
+                                    <td><?= e($gradeRow['grade'] ?? '') ?></td>
+                                    <?php if ($showGradeMin): ?><td><?= e($formatNumber((float) ($gradeRow['min_percentage'] ?? 0))) ?></td><?php endif; ?>
+                                    <?php if ($showGradeMax): ?><td><?= e($formatNumber((float) ($gradeRow['max_percentage'] ?? 0))) ?></td><?php endif; ?>
+                                    <?php if ($showGradePointScale): ?><td><?= e($formatNumber((float) ($gradeRow['point'] ?? 0), 1)) ?></td><?php endif; ?>
+                                    <?php if ($showGradeRemarkScale): ?><td><?= e((string) ($gradeRow['remark'] ?? '')) ?></td><?php endif; ?>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($gradeRows)): ?>
+                                <tr>
+                                    <td colspan="<?= e(1 + (int) $showGradeMin + (int) $showGradeMax + (int) $showGradePointScale + (int) $showGradeRemarkScale) ?>">No grading scale has been configured.</td>
+                                </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($showTeacherComment || $showPrincipalComment): ?>
+            <section class="report-sheet-comments">
+                <?php if ($showTeacherComment): ?>
+                    <div>
+                        <strong>Teacher Remark</strong>
+                        <div class="report-sheet-comment-box"><?= $teacherRemarkHtml !== '' ? $teacherRemarkHtml : '&nbsp;' ?></div>
+                    </div>
+                    <div>
+                        <strong>Teacher Comment</strong>
+                        <div class="report-sheet-comment-box"><?= $teacherCommentHtml !== '' ? $teacherCommentHtml : '&nbsp;' ?></div>
+                    </div>
+                <?php endif; ?>
+                <?php if ($showPrincipalComment): ?>
+                    <div>
+                        <strong>Principal Comment</strong>
+                        <div class="report-sheet-comment-box"><?= $principalCommentHtml !== '' ? $principalCommentHtml : '&nbsp;' ?></div>
+                    </div>
+                <?php endif; ?>
+            </section>
+        <?php endif; ?>
+
+        <footer>
+            <?php if ($footerHtml !== ''): ?>
+                <?= $footerHtml ?>
+            <?php endif; ?>
+            <?php if ($showPrintDate || trim((string) ($templateData['footer_note'] ?? '')) !== '' || $attendanceNote !== ''): ?>
+                <?php if ($showPrintDate): ?><p class="report-sheet-note">Print Date: <?= e($reportDate) ?></p><?php endif; ?>
+                <?php if (trim((string) ($templateData['footer_note'] ?? '')) !== ''): ?><p class="report-sheet-note"><?= e(trim((string) ($templateData['footer_note'] ?? ''))) ?></p><?php endif; ?>
+                <?php if ($attendanceNote !== ''): ?><p class="report-sheet-note"><?= e($attendanceNote) ?></p><?php endif; ?>
+            <?php endif; ?>
+            <?php if ($showPrincipalSignature || $showClassTeacherSignature || $showSchoolStamp): ?>
+                <div class="report-sheet-signatures">
+                    <?php if ($showPrincipalSignature): ?>
+                        <div>
+                            <strong>Principal Signature</strong>
+                            <div><?= $signatureMarkup((string) ($templateData['left_signature'] ?? ''), 'Principal Signature', (int) ($templateData['principal_signature_width'] ?? 120)) ?></div>
+                        </div>
+                    <?php endif; ?>
+                    <?php if ($showClassTeacherSignature): ?>
+                        <div>
+                            <strong>Class Teacher Signature</strong>
+                            <div><?= $signatureMarkup((string) ($templateData['middle_signature'] ?? ''), 'Class Teacher Signature', (int) ($templateData['class_teacher_signature_width'] ?? 120)) ?></div>
+                        </div>
+                    <?php endif; ?>
+                    <?php if ($showSchoolStamp): ?>
+                        <div>
+                            <strong>School Stamp</strong>
+                            <div><?= $signatureMarkup((string) ($templateData['right_signature'] ?? ''), 'School Stamp', (int) ($templateData['school_stamp_width'] ?? 120), true) ?></div>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
+        </footer>
+    </div>
+</section>
+
+<?php if (!empty($autoPrint)): ?>
+    <script>
+        window.addEventListener('load', () => {
+            setTimeout(() => window.print(), 300);
+        });
+    </script>
+<?php endif; ?>

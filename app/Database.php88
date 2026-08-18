@@ -1,0 +1,1264 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App;
+
+use PDO;
+
+final class Database
+{
+    private PDO $pdo;
+    private string $driver;
+
+    public function __construct(array $config)
+    {
+        $this->driver = $config['driver'] ?? 'sqlite';
+        $options = [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+            PDO::ATTR_STRINGIFY_FETCHES => false,
+        ];
+
+        if ($this->driver === 'mysql') {
+            $mysql = $config['mysql'] ?? [];
+            $charset = $mysql['charset'] ?? 'utf8mb4';
+            $port = (int) ($mysql['port'] ?? 3306);
+            $socket = trim((string) ($mysql['socket'] ?? ''));
+            $dsn = $socket !== ''
+                ? "mysql:unix_socket={$socket};dbname={$mysql['database']};charset={$charset}"
+                : "mysql:host={$mysql['host']};port={$port};dbname={$mysql['database']};charset={$charset}";
+            $this->pdo = new PDO($dsn, $mysql['username'] ?? '', $mysql['password'] ?? '', $options);
+        } else {
+            $path = $config['sqlite']['path'] ?? dirname(__DIR__) . '/storage/database.sqlite';
+            $directory = dirname($path);
+
+            if (!is_dir($directory)) {
+                @mkdir($directory, 0775, true);
+            }
+
+            if (!is_file($path)) {
+                @touch($path);
+            }
+
+            $this->pdo = new PDO('sqlite:' . $path, null, null, $options);
+        }
+    }
+
+    public function pdo(): PDO
+    {
+        return $this->pdo;
+    }
+
+    public function migrate(): void
+    {
+        if ($this->driver === 'mysql') {
+            return;
+        }
+
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS students (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_no TEXT NOT NULL,
+                name TEXT NOT NULL,
+                class_name TEXT NOT NULL,
+                guardian TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS admissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                applicant TEXT NOT NULL,
+                class_name TEXT NOT NULL,
+                guardian TEXT NOT NULL,
+                stage TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS staff (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_no TEXT NOT NULL,
+                name TEXT NOT NULL,
+                role TEXT NOT NULL,
+                department TEXT NOT NULL,
+                status TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS classes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                teacher TEXT NOT NULL,
+                room TEXT NOT NULL,
+                capacity INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS attendance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                class_name TEXT NOT NULL,
+                date TEXT NOT NULL,
+                present INTEGER NOT NULL,
+                absent INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS fees (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                invoice_no TEXT NOT NULL,
+                student_name TEXT NOT NULL,
+                amount REAL NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS exams (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                class_name TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                exam_date TEXT NOT NULL,
+                status TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS library_books (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                author TEXT NOT NULL,
+                copies INTEGER NOT NULL,
+                status TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS transport_routes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                route_name TEXT NOT NULL,
+                driver TEXT NOT NULL,
+                vehicle TEXT NOT NULL,
+                students INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS hostel_rooms (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room_no TEXT NOT NULL,
+                block TEXT NOT NULL,
+                capacity INTEGER NOT NULL,
+                occupied INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS announcements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                audience TEXT NOT NULL,
+                publish_date TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE,
+                password TEXT NOT NULL,
+                role TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                setting_key TEXT NOT NULL UNIQUE,
+                setting_value TEXT NOT NULL
+            );
+        SQL);
+
+        $this->ensureAdmissionColumns();
+        $this->ensureFeeColumns();
+        $this->ensureStaffColumns();
+        $this->ensureDesignationTable();
+        $this->ensurePayrollTables();
+        $this->ensureClassModuleTables();
+        $this->ensureAccountingTables();
+        $this->ensureFeeReminderTable();
+        $this->ensureAttendanceTables();
+        $this->ensureCommunicationTables();
+        $this->ensureNotificationTables();
+        $this->ensureApiTables();
+        $this->ensureStudentPortalTables();
+        $this->ensureExamTables();
+        $this->ensureMarksheetTemplateTable();
+        $this->ensureWebsiteTables();
+        $this->ensureUiThemeSettings();
+
+        if ((int) $this->pdo->query('SELECT COUNT(*) FROM students')->fetchColumn() === 0) {
+            $this->seed();
+        }
+
+        if ((int) $this->pdo->query('SELECT COUNT(*) FROM users')->fetchColumn() === 0) {
+            $this->seedUsersAndSettings();
+        }
+
+        $this->ensureDemoStudentPortalSample();
+
+        if ((int) $this->pdo->query('SELECT COUNT(*) FROM designations')->fetchColumn() === 0) {
+            $this->seedDesignations();
+        }
+
+        if ((int) $this->pdo->query('SELECT COUNT(*) FROM office_transactions')->fetchColumn() === 0) {
+            $this->seedOfficeTransactions();
+        }
+    }
+
+    private function ensureAdmissionColumns(): void
+    {
+        $columns = array_column($this->pdo->query('PRAGMA table_info(admissions)')->fetchAll(), 'name');
+        $definitions = [
+            'academic_year' => "TEXT NOT NULL DEFAULT ''",
+            'school_term' => "TEXT NOT NULL DEFAULT ''",
+            'registration_no' => "TEXT NOT NULL DEFAULT ''",
+            'admission_date' => "TEXT NOT NULL DEFAULT ''",
+            'section' => "TEXT NOT NULL DEFAULT ''",
+            'first_name' => "TEXT NOT NULL DEFAULT ''",
+            'middle_name' => "TEXT NOT NULL DEFAULT ''",
+            'last_name' => "TEXT NOT NULL DEFAULT ''",
+            'date_of_birth' => "TEXT NOT NULL DEFAULT ''",
+            'gender' => "TEXT NOT NULL DEFAULT ''",
+            'religion' => "TEXT NOT NULL DEFAULT ''",
+            'address' => "TEXT NOT NULL DEFAULT ''",
+            'email' => "TEXT NOT NULL DEFAULT ''",
+            'city' => "TEXT NOT NULL DEFAULT ''",
+            'state' => "TEXT NOT NULL DEFAULT ''",
+            'profile_picture' => "TEXT NOT NULL DEFAULT ''",
+            'username' => "TEXT NOT NULL DEFAULT ''",
+            'password' => "TEXT NOT NULL DEFAULT ''",
+            'parent_username' => "TEXT NOT NULL DEFAULT ''",
+            'parent_password' => "TEXT NOT NULL DEFAULT ''",
+            'mother_tongue' => "TEXT NOT NULL DEFAULT ''",
+            'guardian_full_name' => "TEXT NOT NULL DEFAULT ''",
+            'guardian_relationship' => "TEXT NOT NULL DEFAULT ''",
+            'father_name' => "TEXT NOT NULL DEFAULT ''",
+            'mother_name' => "TEXT NOT NULL DEFAULT ''",
+            'guardian_occupation' => "TEXT NOT NULL DEFAULT ''",
+            'guardian_address' => "TEXT NOT NULL DEFAULT ''",
+            'guardian_city' => "TEXT NOT NULL DEFAULT ''",
+            'guardian_state' => "TEXT NOT NULL DEFAULT ''",
+            'guardian_mobile' => "TEXT NOT NULL DEFAULT ''",
+            'guardian_picture' => "TEXT NOT NULL DEFAULT ''",
+        ];
+
+        foreach ($definitions as $column => $definition) {
+            if (!in_array($column, $columns, true)) {
+                $this->pdo->exec("ALTER TABLE admissions ADD COLUMN {$column} {$definition}");
+            }
+        }
+    }
+
+    private function ensureFeeColumns(): void
+    {
+        $columns = array_column($this->pdo->query('PRAGMA table_info(fees)')->fetchAll(), 'name');
+        $definitions = [
+            'class_name' => "TEXT NOT NULL DEFAULT ''",
+            'school_term' => "TEXT NOT NULL DEFAULT ''",
+            'school_session' => "TEXT NOT NULL DEFAULT ''",
+        ];
+
+        foreach ($definitions as $column => $definition) {
+            if (!in_array($column, $columns, true)) {
+                $this->pdo->exec("ALTER TABLE fees ADD COLUMN {$column} {$definition}");
+            }
+        }
+    }
+
+    private function ensureStaffColumns(): void
+    {
+        $columns = array_column($this->pdo->query('PRAGMA table_info(staff)')->fetchAll(), 'name');
+        $definitions = [
+            'staff_photo' => "TEXT NOT NULL DEFAULT ''",
+            'joining_date' => "TEXT NOT NULL DEFAULT ''",
+            'designation' => "TEXT NOT NULL DEFAULT ''",
+            'qualification' => "TEXT NOT NULL DEFAULT ''",
+            'experience_details' => "TEXT NOT NULL DEFAULT ''",
+            'middle_name' => "TEXT NOT NULL DEFAULT ''",
+            'surname' => "TEXT NOT NULL DEFAULT ''",
+            'gender' => "TEXT NOT NULL DEFAULT ''",
+            'religion' => "TEXT NOT NULL DEFAULT ''",
+            'date_of_birth' => "TEXT NOT NULL DEFAULT ''",
+            'mobile_no' => "TEXT NOT NULL DEFAULT ''",
+            'address' => "TEXT NOT NULL DEFAULT ''",
+            'email' => "TEXT NOT NULL DEFAULT ''",
+            'username' => "TEXT NOT NULL DEFAULT ''",
+            'password' => "TEXT NOT NULL DEFAULT ''",
+            'bank_name' => "TEXT NOT NULL DEFAULT ''",
+            'account_name' => "TEXT NOT NULL DEFAULT ''",
+            'account_number' => "TEXT NOT NULL DEFAULT ''",
+        ];
+
+        foreach ($definitions as $column => $definition) {
+            if (!in_array($column, $columns, true)) {
+                $this->pdo->exec("ALTER TABLE staff ADD COLUMN {$column} {$definition}");
+            }
+        }
+    }
+
+    private function ensureDesignationTable(): void
+    {
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS designations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL
+            );
+        SQL);
+    }
+
+    private function ensurePayrollTables(): void
+    {
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS salary_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                staff_id INTEGER NOT NULL,
+                basic_salary REAL NOT NULL DEFAULT 0,
+                overtime REAL NOT NULL DEFAULT 0,
+                bonus REAL NOT NULL DEFAULT 0,
+                allowance_name TEXT NOT NULL DEFAULT '',
+                allowance_amount REAL NOT NULL DEFAULT 0,
+                total_allowance REAL NOT NULL DEFAULT 0,
+                total_deduction REAL NOT NULL DEFAULT 0,
+                gross_pay REAL NOT NULL DEFAULT 0,
+                net_salary REAL NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS salary_assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                staff_id INTEGER NOT NULL,
+                template_id INTEGER NOT NULL,
+                assigned_date TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS salary_payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                staff_id INTEGER NOT NULL,
+                template_id INTEGER NOT NULL,
+                payment_month TEXT NOT NULL,
+                net_payment REAL NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'Pending',
+                paid_at TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+        SQL);
+    }
+
+    private function ensureAttendanceTables(): void
+    {
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS student_attendance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id INTEGER NOT NULL,
+                class_name TEXT NOT NULL,
+                section TEXT NOT NULL,
+                attendance_date TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'Present',
+                remark TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                UNIQUE(student_id, attendance_date)
+            );
+
+            CREATE TABLE IF NOT EXISTS staff_attendance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                staff_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                attendance_date TEXT NOT NULL,
+                clock_in TEXT DEFAULT NULL,
+                clock_out TEXT DEFAULT NULL,
+                status TEXT NOT NULL DEFAULT 'Present',
+                remark TEXT NOT NULL DEFAULT '',
+                note TEXT DEFAULT NULL,
+                marked_by INTEGER DEFAULT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT DEFAULT NULL,
+                UNIQUE(staff_id, attendance_date)
+            );
+        SQL);
+
+        $staffAttendanceColumns = array_column($this->pdo->query('PRAGMA table_info(staff_attendance)')->fetchAll(), 'name');
+        foreach ([
+            'clock_in' => 'TEXT DEFAULT NULL',
+            'clock_out' => 'TEXT DEFAULT NULL',
+            'note' => 'TEXT DEFAULT NULL',
+            'marked_by' => 'INTEGER DEFAULT NULL',
+            'updated_at' => 'TEXT DEFAULT NULL',
+        ] as $column => $definition) {
+            if (!in_array($column, $staffAttendanceColumns, true)) {
+                $this->pdo->exec("ALTER TABLE staff_attendance ADD COLUMN {$column} {$definition}");
+            }
+        }
+    }
+
+    private function ensureCommunicationTables(): void
+    {
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS communication_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_type TEXT NOT NULL DEFAULT 'Internal',
+                channel TEXT NOT NULL DEFAULT 'Internal',
+                audience TEXT NOT NULL DEFAULT '',
+                recipient_role TEXT NOT NULL DEFAULT '',
+                recipient_name TEXT NOT NULL DEFAULT '',
+                recipient_contact TEXT NOT NULL DEFAULT '',
+                subject TEXT NOT NULL DEFAULT '',
+                message TEXT NOT NULL,
+                attachment_path TEXT NOT NULL DEFAULT '',
+                attachment_name TEXT NOT NULL DEFAULT '',
+                related_id INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'Queued',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS teacher_conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_type TEXT NOT NULL,
+                teacher_id INTEGER NOT NULL,
+                parent_id INTEGER DEFAULT NULL,
+                other_teacher_id INTEGER DEFAULT NULL,
+                student_id INTEGER DEFAULT NULL,
+                subject TEXT DEFAULT NULL,
+                status TEXT NOT NULL DEFAULT 'open',
+                last_message_at TEXT DEFAULT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT DEFAULT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS teacher_conversation_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id INTEGER NOT NULL,
+                sender_id INTEGER NOT NULL,
+                sender_role TEXT NOT NULL,
+                message TEXT NOT NULL,
+                attachment_path TEXT DEFAULT NULL,
+                attachment_name TEXT NOT NULL DEFAULT '',
+                is_read INTEGER NOT NULL DEFAULT 0,
+                read_at TEXT DEFAULT NULL,
+                created_at TEXT NOT NULL
+            );
+        SQL);
+
+        $columns = array_column($this->pdo->query('PRAGMA table_info(communication_messages)')->fetchAll(), 'name');
+        foreach (['attachment_path' => "TEXT NOT NULL DEFAULT ''", 'attachment_name' => "TEXT NOT NULL DEFAULT ''"] as $column => $definition) {
+            if (!in_array($column, $columns, true)) {
+                $this->pdo->exec("ALTER TABLE communication_messages ADD COLUMN {$column} {$definition}");
+            }
+        }
+
+        $conversationMessageColumns = array_column($this->pdo->query('PRAGMA table_info(teacher_conversation_messages)')->fetchAll(), 'name');
+        foreach ([
+            'attachment_path' => 'TEXT DEFAULT NULL',
+            'attachment_name' => "TEXT NOT NULL DEFAULT ''",
+            'is_read' => 'INTEGER NOT NULL DEFAULT 0',
+            'read_at' => 'TEXT DEFAULT NULL',
+        ] as $column => $definition) {
+            if (!in_array($column, $conversationMessageColumns, true)) {
+                $this->pdo->exec("ALTER TABLE teacher_conversation_messages ADD COLUMN {$column} {$definition}");
+            }
+        }
+    }
+
+    private function ensureNotificationTables(): void
+    {
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER DEFAULT NULL,
+                role TEXT DEFAULT NULL,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                type TEXT NOT NULL DEFAULT 'general',
+                priority TEXT NOT NULL DEFAULT 'normal',
+                link TEXT DEFAULT NULL,
+                icon TEXT DEFAULT NULL,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                read_at TEXT DEFAULT NULL,
+                expires_at TEXT DEFAULT NULL,
+                created_by INTEGER DEFAULT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT DEFAULT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS notification_user_states (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                notification_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT '',
+                is_read INTEGER NOT NULL DEFAULT 0,
+                is_deleted INTEGER NOT NULL DEFAULT 0,
+                read_at TEXT DEFAULT NULL,
+                deleted_at TEXT DEFAULT NULL,
+                UNIQUE(notification_id, user_id, role)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+            CREATE INDEX IF NOT EXISTS idx_notifications_role ON notifications(role);
+            CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
+            CREATE INDEX IF NOT EXISTS idx_notifications_type ON notifications(type);
+            CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
+        SQL);
+
+        if ((int) $this->pdo->query("SELECT COUNT(*) FROM notifications WHERE title = 'Welcome to Notifications'")->fetchColumn() === 0) {
+            $statement = $this->pdo->prepare('INSERT INTO notifications (role, title, message, type, priority, link, icon, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+            $statement->execute([
+                'admin',
+                'Welcome to Notifications',
+                'You will receive school updates, homework alerts, attendance notices, and important announcements here.',
+                'system',
+                'normal',
+                '/notifications',
+                'bell',
+                date('Y-m-d H:i:s'),
+            ]);
+        }
+    }
+
+    private function ensureStudentPortalTables(): void
+    {
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS homework_assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                class_name TEXT NOT NULL,
+                section TEXT NOT NULL DEFAULT '',
+                subject TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                due_date TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS homework_submissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                assignment_id INTEGER NOT NULL,
+                student_id INTEGER NOT NULL,
+                submission_text TEXT NOT NULL DEFAULT '',
+                attachment_path TEXT NOT NULL DEFAULT '',
+                attachment_name TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'Submitted',
+                submitted_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS homework_submission_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                homework_submission_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL DEFAULT 0,
+                action TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS homework_notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                recipient_role TEXT NOT NULL DEFAULT '',
+                recipient_user_id INTEGER NOT NULL DEFAULT 0,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                homework_id INTEGER NOT NULL DEFAULT 0,
+                read_at TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+        SQL);
+
+        $assignmentColumns = array_column($this->pdo->query('PRAGMA table_info(homework_assignments)')->fetchAll(), 'name');
+        $assignmentDefinitions = [
+            'teacher_id' => 'INTEGER NOT NULL DEFAULT 0',
+            'subject_id' => 'INTEGER NOT NULL DEFAULT 0',
+            'topic' => "TEXT NOT NULL DEFAULT ''",
+            'due_at' => "TEXT NOT NULL DEFAULT ''",
+            'total_marks' => 'REAL NOT NULL DEFAULT 100',
+            'submission_type' => "TEXT NOT NULL DEFAULT 'both'",
+            'attachment_path' => "TEXT NOT NULL DEFAULT ''",
+            'attachment_name' => "TEXT NOT NULL DEFAULT ''",
+            'resource_link' => "TEXT NOT NULL DEFAULT ''",
+            'allow_late_submission' => 'INTEGER NOT NULL DEFAULT 0',
+            'status' => "TEXT NOT NULL DEFAULT 'published'",
+            'created_by' => 'INTEGER NOT NULL DEFAULT 0',
+            'updated_by' => 'INTEGER NOT NULL DEFAULT 0',
+            'deleted_at' => "TEXT NOT NULL DEFAULT ''",
+        ];
+
+        foreach ($assignmentDefinitions as $column => $definition) {
+            if (!in_array($column, $assignmentColumns, true)) {
+                $this->pdo->exec("ALTER TABLE homework_assignments ADD COLUMN {$column} {$definition}");
+            }
+        }
+
+        $submissionColumns = array_column($this->pdo->query('PRAGMA table_info(homework_submissions)')->fetchAll(), 'name');
+        $submissionDefinitions = [
+            'submission_link' => "TEXT NOT NULL DEFAULT ''",
+            'is_late' => 'INTEGER NOT NULL DEFAULT 0',
+            'score' => 'REAL DEFAULT NULL',
+            'feedback' => "TEXT NOT NULL DEFAULT ''",
+            'correction_file_path' => "TEXT NOT NULL DEFAULT ''",
+            'correction_file_name' => "TEXT NOT NULL DEFAULT ''",
+            'private_note' => "TEXT NOT NULL DEFAULT ''",
+            'marked_by' => 'INTEGER NOT NULL DEFAULT 0',
+            'marked_at' => "TEXT NOT NULL DEFAULT ''",
+            'deleted_at' => "TEXT NOT NULL DEFAULT ''",
+        ];
+
+        foreach ($submissionDefinitions as $column => $definition) {
+            if (!in_array($column, $submissionColumns, true)) {
+                $this->pdo->exec("ALTER TABLE homework_submissions ADD COLUMN {$column} {$definition}");
+            }
+        }
+
+        if ((int) $this->pdo->query('SELECT COUNT(*) FROM homework_assignments')->fetchColumn() === 0) {
+            $statement = $this->pdo->prepare("INSERT INTO homework_assignments (class_name, section, subject, title, description, due_date, due_at, created_at, status, submission_type, total_marks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $statement->execute(['Nursery 1', 'A', 'English', 'Reading Practice', 'Read one short story and write five new words you learned.', date('Y-m-d', strtotime('+7 days')), date('Y-m-d 16:00:00', strtotime('+7 days')), date('Y-m-d'), 'published', 'both', 20]);
+            $statement->execute(['KG 1', 'B', 'Mathematics', 'Number Practice', 'Complete counting numbers 1 to 50 in your notebook.', date('Y-m-d', strtotime('+5 days')), date('Y-m-d 16:00:00', strtotime('+5 days')), date('Y-m-d'), 'published', 'text', 10]);
+        }
+    }
+
+    private function ensureClassModuleTables(): void
+    {
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS class_assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                class_name TEXT NOT NULL,
+                section TEXT NOT NULL,
+                teacher_id INTEGER NOT NULL,
+                number_of_students INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS subjects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subject_name TEXT NOT NULL,
+                subject_type TEXT NOT NULL,
+                subject_code TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS subject_assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                class_name TEXT NOT NULL,
+                section TEXT NOT NULL,
+                subject_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS timetables (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                class_name TEXT NOT NULL,
+                section TEXT NOT NULL,
+                subject_id INTEGER NOT NULL,
+                teacher_id INTEGER NOT NULL,
+                day_of_week TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                room TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '',
+                created_by INTEGER DEFAULT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT DEFAULT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS teacher_assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                teacher_id INTEGER NOT NULL,
+                class_id INTEGER NOT NULL,
+                subject_id INTEGER DEFAULT NULL,
+                section_id INTEGER DEFAULT NULL,
+                is_class_teacher INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'active',
+                assigned_by INTEGER DEFAULT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT DEFAULT NULL
+            );
+
+            CREATE UNIQUE INDEX IF NOT EXISTS unique_teacher_class_subject
+                ON teacher_assignments (teacher_id, class_id, subject_id, section_id);
+            CREATE INDEX IF NOT EXISTS idx_teacher_assignments_teacher_id ON teacher_assignments (teacher_id);
+            CREATE INDEX IF NOT EXISTS idx_teacher_assignments_class_id ON teacher_assignments (class_id);
+            CREATE INDEX IF NOT EXISTS idx_teacher_assignments_subject_id ON teacher_assignments (subject_id);
+            CREATE INDEX IF NOT EXISTS idx_teacher_assignments_section_id ON teacher_assignments (section_id);
+        SQL);
+
+        $timetableColumns = array_column($this->pdo->query('PRAGMA table_info(timetables)')->fetchAll(), 'name');
+        $timetableDefinitions = [
+            'room' => "TEXT NOT NULL DEFAULT ''",
+            'note' => "TEXT NOT NULL DEFAULT ''",
+            'created_by' => 'INTEGER DEFAULT NULL',
+            'updated_at' => 'TEXT DEFAULT NULL',
+        ];
+
+        foreach ($timetableDefinitions as $column => $definition) {
+            if (!in_array($column, $timetableColumns, true)) {
+                $this->pdo->exec("ALTER TABLE timetables ADD COLUMN {$column} {$definition}");
+            }
+        }
+    }
+
+    private function ensureApiTables(): void
+    {
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS api_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                token_hash TEXT NOT NULL,
+                device_name TEXT DEFAULT NULL,
+                device_type TEXT DEFAULT NULL,
+                last_used_at TEXT DEFAULT NULL,
+                expires_at TEXT DEFAULT NULL,
+                revoked_at TEXT DEFAULT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_user_role ON api_tokens (user_id, role);
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_hash ON api_tokens (token_hash);
+            CREATE INDEX IF NOT EXISTS idx_api_tokens_expires ON api_tokens (expires_at);
+        SQL);
+    }
+
+    private function ensureWebsiteTables(): void
+    {
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS website_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                active_template TEXT NOT NULL DEFAULT 'classic',
+                site_title TEXT DEFAULT NULL,
+                meta_description TEXT DEFAULT NULL,
+                meta_keywords TEXT DEFAULT NULL,
+                og_title TEXT DEFAULT NULL,
+                og_description TEXT DEFAULT NULL,
+                og_image TEXT DEFAULT NULL,
+                school_logo TEXT DEFAULT NULL,
+                favicon TEXT DEFAULT NULL,
+                footer_text TEXT DEFAULT NULL,
+                show_teacher_phone INTEGER NOT NULL DEFAULT 0,
+                show_teacher_email INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT DEFAULT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS website_sections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                section_key TEXT NOT NULL UNIQUE,
+                section_value TEXT DEFAULT NULL,
+                section_type TEXT NOT NULL DEFAULT 'text',
+                is_enabled INTEGER NOT NULL DEFAULT 1,
+                updated_at TEXT DEFAULT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS website_gallery (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                image_path TEXT NOT NULL,
+                title TEXT DEFAULT NULL,
+                description TEXT DEFAULT NULL,
+                category TEXT DEFAULT NULL,
+                is_featured INTEGER NOT NULL DEFAULT 0,
+                is_published INTEGER NOT NULL DEFAULT 1,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_by INTEGER DEFAULT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT DEFAULT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS website_teachers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                photo_path TEXT DEFAULT NULL,
+                full_name TEXT NOT NULL,
+                role_title TEXT DEFAULT NULL,
+                subject TEXT DEFAULT NULL,
+                phone TEXT DEFAULT NULL,
+                email TEXT DEFAULT NULL,
+                biography TEXT DEFAULT NULL,
+                social_link TEXT DEFAULT NULL,
+                is_featured INTEGER NOT NULL DEFAULT 0,
+                is_published INTEGER NOT NULL DEFAULT 1,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_by INTEGER DEFAULT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT DEFAULT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS website_contact_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                full_name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                phone TEXT DEFAULT NULL,
+                subject TEXT DEFAULT NULL,
+                message TEXT NOT NULL,
+                is_read INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS website_reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_name TEXT NOT NULL,
+                parent_title TEXT DEFAULT NULL,
+                review_text TEXT NOT NULL,
+                parent_image TEXT DEFAULT NULL,
+                rating INTEGER NOT NULL DEFAULT 5,
+                is_featured INTEGER NOT NULL DEFAULT 0,
+                is_published INTEGER NOT NULL DEFAULT 1,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_by INTEGER DEFAULT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT DEFAULT NULL
+            );
+        SQL);
+
+        if ((int) $this->pdo->query('SELECT COUNT(*) FROM website_settings')->fetchColumn() === 0) {
+            $statement = $this->pdo->prepare('INSERT INTO website_settings (active_template, site_title, footer_text, created_at) VALUES (?, ?, ?, ?)');
+            $statement->execute(['classic', 'Smapis School Portal', 'Building knowledge, character, and confidence.', date('Y-m-d H:i:s')]);
+        }
+
+        $defaults = [
+            'hero_title' => 'Welcome to Our School',
+            'hero_subtitle' => 'A modern learning environment where students grow in knowledge, character, and confidence.',
+            'hero_button_text' => 'Apply for Admission',
+            'hero_button_link' => '/admissions/create',
+            'hero_image' => '',
+            'about_title' => 'About Our School',
+            'about_content' => 'Please update this section from the Website Manager.',
+            'about_image' => '',
+            'mission_title' => 'Our Mission',
+            'mission_content' => 'To provide excellent learning experiences that prepare children for a purposeful future.',
+            'vision_title' => 'Our Vision',
+            'vision_content' => 'To become a trusted African school known for discipline, innovation, and academic excellence.',
+            'why_choose_title' => 'Why Choose Us',
+            'why_choose_points' => "Qualified teachers\nSafe learning environment\nBalanced academics and character formation",
+            'programs_title' => 'Our Programs',
+            'programs_content' => 'Nursery, kindergarten, and primary learning programs designed for steady growth.',
+            'gallery_title' => 'Students Gallery',
+            'teachers_title' => 'Our Teachers',
+            'contact_title' => 'Contact Us',
+            'contact_intro' => 'Please update the school contact information from the Website Manager.',
+            'contact_address' => '',
+            'contact_phone' => '',
+            'contact_email' => '',
+            'contact_whatsapp' => '',
+            'opening_hours' => 'Monday - Friday, 8:00am - 4:00pm',
+            'facebook_url' => '',
+            'instagram_url' => '',
+            'youtube_url' => '',
+            'tiktok_url' => '',
+            'linkedin_url' => '',
+            'footer_text' => 'Building knowledge, character, and confidence.',
+        ];
+        $statement = $this->pdo->prepare('INSERT OR IGNORE INTO website_sections (section_key, section_value, section_type, is_enabled, updated_at) VALUES (?, ?, ?, ?, ?)');
+        foreach ($defaults as $key => $value) {
+            $statement->execute([$key, $value, str_contains($key, 'image') ? 'image' : 'text', 1, date('Y-m-d H:i:s')]);
+        }
+    }
+
+    private function ensureAccountingTables(): void
+    {
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS office_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT NOT NULL,
+                account_name TEXT NOT NULL DEFAULT 'Main Account',
+                category TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL,
+                amount REAL NOT NULL DEFAULT 0,
+                payment_method TEXT NOT NULL DEFAULT '',
+                reference_no TEXT NOT NULL DEFAULT '',
+                transaction_date TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+        SQL);
+    }
+
+    private function ensureFeeReminderTable(): void
+    {
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS fee_reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                class_name TEXT NOT NULL,
+                school_term TEXT NOT NULL DEFAULT '',
+                school_session TEXT NOT NULL DEFAULT '',
+                due_date TEXT NOT NULL DEFAULT '',
+                audience TEXT NOT NULL DEFAULT 'Parents',
+                message TEXT NOT NULL,
+                communication_status TEXT NOT NULL DEFAULT 'Draft',
+                created_at TEXT NOT NULL
+            );
+        SQL);
+    }
+
+    private function ensureExamTables(): void
+    {
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS exam_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                class_name TEXT NOT NULL,
+                section TEXT NOT NULL,
+                school_term TEXT NOT NULL,
+                school_session TEXT NOT NULL,
+                subject_id INTEGER NOT NULL,
+                exam_name TEXT NOT NULL DEFAULT 'Term Examination',
+                created_by INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS mark_distributions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                max_mark REAL NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS exam_grades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                grade_name TEXT NOT NULL,
+                min_mark REAL NOT NULL DEFAULT 0,
+                max_mark REAL NOT NULL DEFAULT 0,
+                remark TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS exam_marks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                exam_setting_id INTEGER NOT NULL,
+                student_id INTEGER NOT NULL,
+                distribution_id INTEGER NOT NULL,
+                mark REAL NOT NULL DEFAULT 0,
+                teacher_id INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                UNIQUE(exam_setting_id, student_id, distribution_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS exam_schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                exam_setting_id INTEGER NOT NULL,
+                exam_date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS exam_comments (
+                exam_setting_id INTEGER NOT NULL,
+                student_id INTEGER NOT NULL,
+                teacher_remark TEXT NOT NULL DEFAULT '',
+                teacher_comment TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (exam_setting_id, student_id)
+            );
+        SQL);
+
+        if ((int) $this->pdo->query('SELECT COUNT(*) FROM mark_distributions')->fetchColumn() === 0) {
+            $this->seedMarkDistributions();
+        }
+
+        if ((int) $this->pdo->query('SELECT COUNT(*) FROM exam_grades')->fetchColumn() === 0) {
+            $this->seedExamGrades();
+        }
+    }
+
+    private function ensureMarksheetTemplateTable(): void
+    {
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS marksheet_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                page_layout TEXT NOT NULL DEFAULT 'Portrait',
+                photo_style TEXT NOT NULL DEFAULT 'Square',
+                photo_size INTEGER NOT NULL DEFAULT 100,
+                top_space INTEGER NOT NULL DEFAULT 20,
+                bottom_space INTEGER NOT NULL DEFAULT 20,
+                right_space INTEGER NOT NULL DEFAULT 20,
+                left_space INTEGER NOT NULL DEFAULT 20,
+                logo TEXT NOT NULL DEFAULT '',
+                background TEXT NOT NULL DEFAULT '',
+                left_signature TEXT NOT NULL DEFAULT '',
+                middle_signature TEXT NOT NULL DEFAULT '',
+                right_signature TEXT NOT NULL DEFAULT '',
+                header_content TEXT NOT NULL DEFAULT '',
+                footer_content TEXT NOT NULL DEFAULT '',
+                attendance_percentage INTEGER NOT NULL DEFAULT 1,
+                grading_scale INTEGER NOT NULL DEFAULT 1,
+                position INTEGER NOT NULL DEFAULT 1,
+                cumulative_average INTEGER NOT NULL DEFAULT 1,
+                class_average INTEGER NOT NULL DEFAULT 1,
+                subject_position INTEGER NOT NULL DEFAULT 1,
+                remark INTEGER NOT NULL DEFAULT 1,
+                result INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            );
+        SQL);
+    }
+
+    private function seedDesignations(): void
+    {
+        $now = date('Y-m-d');
+        $statement = $this->pdo->prepare('INSERT INTO designations (name, created_at) VALUES (?, ?)');
+
+        foreach (['Principal', 'Admin', 'Teacher', 'Asst Teacher', 'Accountant', 'Receptionist', 'Librarian'] as $name) {
+            $statement->execute([$name, $now]);
+        }
+    }
+
+    private function seedOfficeTransactions(): void
+    {
+        $now = date('Y-m-d');
+        $statement = $this->pdo->prepare(
+            'INSERT INTO office_transactions (type, account_name, category, title, amount, payment_method, reference_no, transaction_date, note, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+
+        foreach ([
+            ['Income', 'Main Account', 'Donation', 'PTA facility support', 85000, 'Bank Transfer', 'OFF-INC-001', 'General office income'],
+            ['Income', 'Main Account', 'Uniform Sales', 'Uniform and exercise book sales', 72000, 'Cash', 'OFF-INC-002', 'Sales through front office'],
+            ['Expenditure', 'Main Account', 'Utilities', 'Electricity bill payment', 45000, 'Bank Transfer', 'OFF-EXP-001', 'Monthly utility bill'],
+            ['Expenditure', 'Main Account', 'Maintenance', 'Classroom furniture repairs', 30000, 'Cash', 'OFF-EXP-002', 'Repair of desks and chairs'],
+        ] as $row) {
+            $statement->execute([$row[0], $row[1], $row[2], $row[3], $row[4], $row[5], $row[6], $now, $row[7], $now]);
+        }
+    }
+
+    private function seedMarkDistributions(): void
+    {
+        $now = date('Y-m-d');
+        $statement = $this->pdo->prepare('INSERT INTO mark_distributions (name, max_mark, sort_order, created_at) VALUES (?, ?, ?, ?)');
+
+        foreach ([['Class Work', 10, 1], ['Assignment', 10, 2], ['Test', 20, 3], ['Exam', 60, 4]] as $row) {
+            $statement->execute([$row[0], $row[1], $row[2], $now]);
+        }
+    }
+
+    private function seedExamGrades(): void
+    {
+        $now = date('Y-m-d');
+        $statement = $this->pdo->prepare('INSERT INTO exam_grades (grade_name, min_mark, max_mark, remark, created_at) VALUES (?, ?, ?, ?, ?)');
+
+        foreach ([['A', 70, 100, 'Excellent'], ['B', 60, 69, 'Very Good'], ['C', 50, 59, 'Good'], ['D', 40, 49, 'Pass'], ['F', 0, 39, 'Needs Improvement']] as $row) {
+            $statement->execute([$row[0], $row[1], $row[2], $row[3], $now]);
+        }
+    }
+
+    private function seed(): void
+    {
+        $now = date('Y-m-d');
+
+        $this->pdo->exec(<<<SQL
+            INSERT INTO students (student_no, name, class_name, guardian, status, created_at) VALUES
+            ('STU-1001', 'Amina Yusuf', 'JSS 1 Gold', 'Musa Yusuf', 'Active', '$now'),
+            ('STU-1002', 'Daniel Okafor', 'JSS 2 Blue', 'Grace Okafor', 'Active', '$now'),
+            ('STU-1003', 'Ife Adeyemi', 'SSS 1 Science', 'Tola Adeyemi', 'Active', '$now'),
+            ('STU-1004', 'Maryam Bello', 'Primary 5', 'Hauwa Bello', 'Inactive', '$now');
+
+            INSERT INTO admissions (applicant, class_name, guardian, stage, created_at) VALUES
+            ('Chidi Nwosu', 'JSS 1 Gold', 'Ada Nwosu', 'Screening', '$now'),
+            ('Zainab Ali', 'Primary 4', 'Ibrahim Ali', 'Interview', '$now'),
+            ('Samuel Eze', 'SSS 1 Arts', 'Ngozi Eze', 'Accepted', '$now');
+
+            INSERT INTO staff (employee_no, name, role, department, status) VALUES
+            ('EMP-021', 'Mrs. Helen Johnson', 'Principal', 'Administration', 'Active'),
+            ('EMP-044', 'Mr. Musa Danladi', 'Mathematics Teacher', 'Academics', 'Active'),
+            ('EMP-052', 'Ms. Eniola Cole', 'Accountant', 'Finance', 'Active');
+
+            INSERT INTO classes (name, teacher, room, capacity) VALUES
+            ('JSS 1 Gold', 'Mr. Musa Danladi', 'Block A-101', 35),
+            ('JSS 2 Blue', 'Ms. Eniola Cole', 'Block A-203', 32),
+            ('SSS 1 Science', 'Dr. Victor Ibe', 'Science Lab 1', 28);
+
+            INSERT INTO attendance (class_name, date, present, absent) VALUES
+            ('JSS 1 Gold', '$now', 31, 4),
+            ('JSS 2 Blue', '$now', 29, 3),
+            ('SSS 1 Science', '$now', 26, 2);
+
+            INSERT INTO fees (invoice_no, student_name, amount, status, created_at) VALUES
+            ('INV-2026-001', 'Amina Yusuf', 125000, 'Paid', '$now'),
+            ('INV-2026-002', 'Daniel Okafor', 125000, 'Partial', '$now'),
+            ('INV-2026-003', 'Ife Adeyemi', 150000, 'Unpaid', '$now');
+
+            INSERT INTO office_transactions (type, account_name, category, title, amount, payment_method, reference_no, transaction_date, note, created_at) VALUES
+            ('Income', 'Main Account', 'Donation', 'PTA facility support', 85000, 'Bank Transfer', 'OFF-INC-001', '$now', 'General office income', '$now'),
+            ('Income', 'Main Account', 'Uniform Sales', 'Uniform and exercise book sales', 72000, 'Cash', 'OFF-INC-002', '$now', 'Sales through front office', '$now'),
+            ('Expenditure', 'Main Account', 'Utilities', 'Electricity bill payment', 45000, 'Bank Transfer', 'OFF-EXP-001', '$now', 'Monthly utility bill', '$now'),
+            ('Expenditure', 'Main Account', 'Maintenance', 'Classroom furniture repairs', 30000, 'Cash', 'OFF-EXP-002', '$now', 'Repair of desks and chairs', '$now');
+
+            INSERT INTO exams (title, class_name, subject, exam_date, status) VALUES
+            ('Mid Term Test', 'JSS 1 Gold', 'Mathematics', '2026-06-04', 'Scheduled'),
+            ('Practical Assessment', 'SSS 1 Science', 'Biology', '2026-06-08', 'Draft'),
+            ('End of Term Exam', 'JSS 2 Blue', 'English', '2026-07-10', 'Scheduled');
+
+            INSERT INTO library_books (title, author, copies, status) VALUES
+            ('New General Mathematics', 'M. F. Macrae', 18, 'Available'),
+            ('Invisible Man', 'Ralph Ellison', 7, 'Available'),
+            ('Essential Biology', 'M. C. Michael', 12, 'Low Stock');
+
+            INSERT INTO transport_routes (route_name, driver, vehicle, students) VALUES
+            ('Ikeja Morning Route', 'Mr. Lawal', 'BUS-014', 22),
+            ('Surulere Route', 'Mr. Peter', 'BUS-008', 18);
+
+            INSERT INTO hostel_rooms (room_no, block, capacity, occupied) VALUES
+            ('A-12', 'Girls Hostel', 6, 5),
+            ('B-08', 'Boys Hostel', 6, 6),
+            ('C-04', 'Senior Hostel', 4, 2);
+
+            INSERT INTO announcements (title, audience, publish_date) VALUES
+            ('PTA meeting scheduled for next Friday', 'Parents', '$now'),
+            ('Mid-term assessment timetable is ready', 'Students', '$now'),
+            ('Staff training starts by 10 AM', 'Staff', '$now');
+        SQL);
+    }
+
+    private function seedUsersAndSettings(): void
+    {
+        $now = date('Y-m-d');
+        $hash = password_hash('password', PASSWORD_DEFAULT);
+        $users = [
+            ['Super Admin', 'superadmin@school.test', 'superadmin'],
+            ['School Admin', 'admin@school.test', 'admin'],
+            ['Class Teacher', 'teacher@school.test', 'teacher'],
+            ['Account Officer', 'accountant@school.test', 'accountant'],
+            ['Front Desk', 'receptionist@school.test', 'receptionist'],
+            ['Demo Parent', 'parent@school.test', 'parent'],
+            ['Demo Student', 'student@school.test', 'student'],
+        ];
+
+        $statement = $this->pdo->prepare('INSERT INTO users (name, email, password, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+
+        foreach ($users as $user) {
+            $statement->execute([$user[0], $user[1], $hash, $user[2], 'Active', $now]);
+        }
+
+        $settings = [
+            'school_name' => 'Smapis School Portal',
+            'school_short_name' => 'Smapis',
+            'school_email' => 'info@school.test',
+            'school_phone' => '+234 800 000 0000',
+            'school_address' => '15 Learning Avenue, Lagos',
+            'academic_year' => '2026',
+            'logo_path' => '',
+            'favicon_path' => '',
+            'login_background_path' => '',
+            'ui_theme_preset' => 'gmail_material',
+            'ui_app_background' => '#FFFFFF',
+            'ui_sidebar_background' => '#F2F6FC',
+            'ui_primary_button_background' => '#C2E7FF',
+            'ui_primary_button_text' => '#001D35',
+            'ui_active_sidebar_background' => '#C2E7FF',
+            'ui_active_sidebar_text' => '#0B57D0',
+            'ui_inactive_sidebar_text' => '#444746',
+            'ui_topbar_background' => '#FFFFFF',
+            'ui_banner_background' => '#EAF1FB',
+            'ui_card_background' => '#FFFFFF',
+        ];
+        $settingStatement = $this->pdo->prepare('INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)');
+
+        foreach ($settings as $key => $value) {
+            $settingStatement->execute([$key, $value]);
+        }
+    }
+
+    private function ensureDemoStudentPortalSample(): void
+    {
+        $now = date('Y-m-d');
+        $password = password_hash('password', PASSWORD_DEFAULT);
+        $existing = $this->pdo->prepare('SELECT id FROM admissions WHERE username = ? LIMIT 1');
+        $existing->execute(['student_sample@school.test']);
+        $studentId = (int) ($existing->fetchColumn() ?: 0);
+
+        if ($studentId === 0) {
+            $statement = $this->pdo->prepare(
+                'INSERT INTO admissions (academic_year, school_term, registration_no, admission_date, applicant, class_name, section, first_name, middle_name, last_name, date_of_birth, gender, religion, address, email, city, state, profile_picture, username, password, parent_username, parent_password, mother_tongue, guardian, guardian_full_name, guardian_relationship, father_name, mother_name, guardian_occupation, guardian_address, guardian_city, guardian_state, guardian_mobile, guardian_picture, stage, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            );
+            $statement->execute([
+                '2026-2027', 'First Term', 'ADM-2026-PORTAL', $now, 'Test Portal Student', 'Primary 5', 'A',
+                'Test', 'Portal', 'Student', '2015-04-12', 'Female', 'Christianity', '15 Learning Avenue, Lagos',
+                'student_sample@school.test', 'Lagos', 'Lagos', '', 'student_sample@school.test', $password,
+                'parent_sample@school.test', $password, 'English', 'Mr. Portal Parent', 'Mr. Portal Parent',
+                'Father', 'Mr. Portal Parent', 'Mrs. Portal Parent', 'Engineer', '15 Learning Avenue, Lagos',
+                'Lagos', 'Lagos', '+2348001112222', '', 'Accepted', $now,
+            ]);
+            $studentId = (int) $this->pdo->lastInsertId();
+        }
+
+        $userExists = $this->pdo->prepare('SELECT COUNT(*) FROM users WHERE email = ?');
+        $user = $this->pdo->prepare('INSERT INTO users (name, email, password, role, status, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+        $userExists->execute(['student_sample@school.test']);
+        if ((int) $userExists->fetchColumn() === 0) {
+            $user->execute(['Test Portal Student', 'student_sample@school.test', $password, 'student', 'Active', $now]);
+        }
+        $userExists->execute(['parent_sample@school.test']);
+        if ((int) $userExists->fetchColumn() === 0) {
+            $user->execute(['Test Portal Parent', 'parent_sample@school.test', $password, 'parent', 'Active', $now]);
+        }
+
+        $teacherId = (int) ($this->pdo->query("SELECT id FROM staff WHERE employee_no = 'EMP-PORTAL-T01' LIMIT 1")->fetchColumn() ?: 0);
+        if ($teacherId === 0) {
+            $staff = $this->pdo->prepare('INSERT INTO staff (employee_no, name, role, department, status, designation, email, mobile_no) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+            $staff->execute(['EMP-PORTAL-T01', 'Mrs. Grace Teacher', 'Teacher', 'Academics', 'Active', 'Class Teacher', 'grace.teacher@school.test', '+2348003334444']);
+            $teacherId = (int) $this->pdo->lastInsertId();
+        }
+
+        $this->pdo->prepare('UPDATE staff SET email = ?, username = CASE WHEN username = "" THEN ? ELSE username END WHERE id = ?')
+            ->execute(['teacher@school.test', 'teacher@school.test', $teacherId]);
+
+        $subjectId = (int) ($this->pdo->query("SELECT id FROM subjects WHERE subject_code = 'MTH-P5' LIMIT 1")->fetchColumn() ?: 0);
+        if ($subjectId === 0) {
+            $subject = $this->pdo->prepare('INSERT INTO subjects (subject_name, subject_type, subject_code, created_at) VALUES (?, ?, ?, ?)');
+            $subject->execute(['Mathematics', 'Theory', 'MTH-P5', $now]);
+            $subjectId = (int) $this->pdo->lastInsertId();
+        }
+
+        $classId = (int) ($this->pdo->query("SELECT id FROM classes WHERE name = 'Primary 5' LIMIT 1")->fetchColumn() ?: 0);
+        if ($classId === 0) {
+            $class = $this->pdo->prepare('INSERT INTO classes (name, teacher, room, capacity) VALUES (?, ?, ?, ?)');
+            $class->execute(['Primary 5', 'Mrs. Grace Teacher', 'Block B-104', 30]);
+            $classId = (int) $this->pdo->lastInsertId();
+        }
+
+        if ((int) $this->pdo->query("SELECT COUNT(*) FROM class_assignments WHERE class_name = 'Primary 5' AND section = 'A'")->fetchColumn() === 0) {
+            $this->pdo->prepare('INSERT INTO class_assignments (class_name, section, teacher_id, number_of_students, created_at) VALUES (?, ?, ?, ?, ?)')->execute(['Primary 5', 'A', $teacherId, 1, $now]);
+        }
+        if ((int) $this->pdo->query("SELECT COUNT(*) FROM subject_assignments WHERE class_name = 'Primary 5' AND section = 'A' AND subject_id = {$subjectId}")->fetchColumn() === 0) {
+            $this->pdo->prepare('INSERT INTO subject_assignments (class_name, section, subject_id, created_at) VALUES (?, ?, ?, ?)')->execute(['Primary 5', 'A', $subjectId, $now]);
+        }
+        if ((int) $this->pdo->query("SELECT COUNT(*) FROM timetables WHERE class_name = 'Primary 5' AND section = 'A'")->fetchColumn() === 0) {
+            $this->pdo->prepare('INSERT INTO timetables (class_name, section, subject_id, teacher_id, day_of_week, start_time, end_time, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')->execute(['Primary 5', 'A', $subjectId, $teacherId, 'Monday', '08:00', '09:00', $now]);
+        }
+        if ((int) $this->pdo->query("SELECT COUNT(*) FROM teacher_assignments WHERE teacher_id = {$teacherId} AND class_id = {$classId} AND subject_id = {$subjectId} AND section_id IS NULL")->fetchColumn() === 0) {
+            $assignedBy = (int) ($this->pdo->query("SELECT id FROM users WHERE role = 'superadmin' LIMIT 1")->fetchColumn() ?: 0);
+            $assignment = $this->pdo->prepare('INSERT INTO teacher_assignments (teacher_id, class_id, subject_id, section_id, is_class_teacher, status, assigned_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+            $assignment->execute([$teacherId, $classId, $subjectId, null, 1, 'active', $assignedBy ?: null, $now]);
+        }
+        if ((int) $this->pdo->query("SELECT COUNT(*) FROM fees WHERE invoice_no = 'INV-PORTAL-001'")->fetchColumn() === 0) {
+            $this->pdo->prepare('INSERT INTO fees (invoice_no, student_name, class_name, school_term, school_session, amount, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')->execute(['INV-PORTAL-001', 'Test Portal Student', 'Primary 5', 'First Term', '2026-2027', 120000, 'Partial', $now]);
+        }
+        if ((int) $this->pdo->query("SELECT COUNT(*) FROM student_attendance WHERE student_id = {$studentId}")->fetchColumn() === 0) {
+            $attendance = $this->pdo->prepare('INSERT INTO student_attendance (student_id, class_name, section, attendance_date, status, remark, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+            $attendance->execute([$studentId, 'Primary 5', 'A', date('Y-m-03'), 'Present', 'On time', $now]);
+            $attendance->execute([$studentId, 'Primary 5', 'A', date('Y-m-04'), 'Late', 'Arrived after assembly', $now]);
+        }
+        if ((int) $this->pdo->query("SELECT COUNT(*) FROM homework_assignments WHERE class_name = 'Primary 5' AND section = 'A'")->fetchColumn() === 0) {
+            $this->pdo->prepare('INSERT INTO homework_assignments (class_name, section, subject, title, description, due_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')->execute(['Primary 5', 'A', 'Mathematics', 'Fractions Practice', 'Solve exercises 1 to 10 on equivalent fractions.', date('Y-m-d', strtotime('+7 days')), $now]);
+        }
+        if ((int) $this->pdo->query("SELECT COUNT(*) FROM communication_messages WHERE recipient_name = 'Test Portal Student'")->fetchColumn() === 0) {
+            $this->pdo->prepare('INSERT INTO communication_messages (message_type, channel, audience, recipient_role, recipient_name, subject, message, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')->execute(['Internal', 'Internal', 'Students', 'student', 'Test Portal Student', 'Welcome to the Student Portal', 'Your portal modules are ready for testing.', 'Queued', $now]);
+        }
+    }
+
+    private function ensureUiThemeSettings(): void
+    {
+        $settings = [
+            'ui_theme_preset' => 'gmail_material',
+            'ui_app_background' => '#FFFFFF',
+            'ui_sidebar_background' => '#F2F6FC',
+            'ui_primary_button_background' => '#C2E7FF',
+            'ui_primary_button_text' => '#001D35',
+            'ui_active_sidebar_background' => '#C2E7FF',
+            'ui_active_sidebar_text' => '#0B57D0',
+            'ui_inactive_sidebar_text' => '#444746',
+            'ui_topbar_background' => '#FFFFFF',
+            'ui_banner_background' => '#EAF1FB',
+            'ui_card_background' => '#FFFFFF',
+        ];
+        $statement = $this->pdo->prepare('INSERT OR IGNORE INTO settings (setting_key, setting_value) VALUES (?, ?)');
+
+        foreach ($settings as $key => $value) {
+            $statement->execute([$key, $value]);
+        }
+    }
+}

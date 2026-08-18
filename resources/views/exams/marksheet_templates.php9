@@ -1,0 +1,349 @@
+<?php include __DIR__ . '/nav.php'; ?>
+<?php
+    $template = (array) ($edit ?? []);
+    $value = static fn (string $key, mixed $default = ''): string => e((string) ($template[$key] ?? $default));
+    $checked = static fn (string $key, int $default = 1): string => (int) ($template[$key] ?? $default) === 1 ? 'checked' : '';
+    $paperSizes = ['A4', 'A5', 'Letter', 'Legal'];
+    $orientations = ['Portrait', 'Landscape'];
+    $logoPositions = ['Top Center', 'Top Left', 'Top Right'];
+    $fontFamilies = [
+        'Arial, Helvetica, sans-serif',
+        'Georgia, serif',
+        'Tahoma, sans-serif',
+        '"Times New Roman", Times, serif',
+        'Verdana, sans-serif',
+    ];
+    $biodataLayouts = ['Table', 'Grid', 'Stacked'];
+    $dateFormats = ['d.M.Y', 'd/m/Y', 'd-m-Y', 'j M Y', 'd F Y'];
+    $defaultHeader = '<div class="template-default-header"><h2>[school_name]</h2><p>[school_address]</p><h3>Student Report Sheet</h3></div>';
+    $defaultFooter = '<p>Principal Comment: [principal_comment]</p><p>Teacher Comment: [teacher_comment]</p>';
+?>
+
+<section class="module-hero">
+    <div>
+        <p class="eyebrow">Report sheet design</p>
+        <h2>Marksheet Template</h2>
+        <p>Create editable report sheet templates for student and parent result display.</p>
+    </div>
+</section>
+
+<form class="marksheet-form" method="post" action="/exams/marksheet-templates/save" enctype="multipart/form-data">
+    <input type="hidden" name="id" value="<?= e($template['id'] ?? '') ?>">
+
+    <section class="panel marksheet-panel">
+        <div class="panel-header">
+            <div>
+                <p class="eyebrow"><?= $edit ? 'Edit template' : 'Add template' ?></p>
+                <h3><?= $edit ? 'Update Marksheet Template' : 'New Marksheet Template' ?></h3>
+            </div>
+            <div class="panel-actions">
+                <?php if ($edit): ?><a class="secondary-action" href="/exams/marksheet-templates">Cancel Edit</a><?php endif; ?>
+                <button type="submit"><?= $edit ? 'Update Template' : 'Save Template' ?></button>
+            </div>
+        </div>
+
+        <div class="marksheet-section-grid">
+            <fieldset class="marksheet-section">
+                <legend>General Settings</legend>
+                <div class="marksheet-field-grid">
+                    <label><span>Template Name</span><input name="name" value="<?= $value('name', 'Classic Academic Report Sheet') ?>" required></label>
+                    <label><span>Paper Size</span>
+                        <select name="paper_size">
+                            <?php foreach ($paperSizes as $paperSize): ?>
+                                <option value="<?= e($paperSize) ?>" <?= ($template['paper_size'] ?? 'A4') === $paperSize ? 'selected' : '' ?>><?= e($paperSize) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label><span>Orientation</span>
+                        <select name="orientation">
+                            <?php foreach ($orientations as $orientation): ?>
+                                <option value="<?= e($orientation) ?>" <?= ($template['orientation'] ?? 'Portrait') === $orientation ? 'selected' : '' ?>><?= e($orientation) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label><span>Page Width</span><input type="number" name="page_width" value="<?= e((int) ($template['page_width'] ?? 794)) ?>"></label>
+                    <label><span>Page Height</span><input type="number" name="page_height" value="<?= e((int) ($template['page_height'] ?? 1123)) ?>"></label>
+                    <label><span>Top Space</span><input type="number" name="top_space" value="<?= e((int) ($template['top_space'] ?? 30)) ?>"></label>
+                    <label><span>Bottom Space</span><input type="number" name="bottom_space" value="<?= e((int) ($template['bottom_space'] ?? 30)) ?>"></label>
+                    <label><span>Right Space</span><input type="number" name="right_space" value="<?= e((int) ($template['right_space'] ?? 30)) ?>"></label>
+                    <label><span>Left Space</span><input type="number" name="left_space" value="<?= e((int) ($template['left_space'] ?? 30)) ?>"></label>
+                    <label><span>Font Family</span>
+                        <select name="font_family">
+                            <?php foreach ($fontFamilies as $fontFamily): ?>
+                                <option value="<?= e($fontFamily) ?>" <?= ($template['font_family'] ?? 'Arial, Helvetica, sans-serif') === $fontFamily ? 'selected' : '' ?>><?= e($fontFamily) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label><span>Base Font Size</span><input type="number" name="base_font_size" value="<?= e((int) ($template['base_font_size'] ?? 12)) ?>"></label>
+                    <label><span>Table Font Size</span><input type="number" name="table_font_size" value="<?= e((int) ($template['table_font_size'] ?? 11)) ?>"></label>
+                    <label><span>Header Font Size</span><input type="number" name="header_font_size" value="<?= e((int) ($template['header_font_size'] ?? 18)) ?>"></label>
+                    <label><span>Line Height</span><input type="text" name="line_height" value="<?= e((string) ($template['line_height'] ?? 1.35)) ?>"></label>
+                </div>
+            </fieldset>
+
+            <fieldset class="marksheet-section">
+                <legend>Header And Branding</legend>
+                <div class="marksheet-field-grid">
+                    <label class="toggle-field"><input type="checkbox" name="show_school_logo" value="1" <?= $checked('show_school_logo', 1) ?>> Show School Logo</label>
+                    <label><span>Logo Position</span>
+                        <select name="logo_position">
+                            <?php foreach ($logoPositions as $logoPosition): ?>
+                                <option value="<?= e($logoPosition) ?>" <?= ($template['logo_position'] ?? 'Top Center') === $logoPosition ? 'selected' : '' ?>><?= e($logoPosition) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label><span>Logo Width</span><input type="number" name="logo_width" value="<?= e((int) ($template['logo_width'] ?? 420)) ?>"></label>
+                    <label><span>Logo Height</span><input type="text" name="logo_height" value="<?= e((string) ($template['logo_height'] ?? 'auto')) ?>"></label>
+                    <label class="toggle-field"><input type="checkbox" name="show_school_name" value="1" <?= $checked('show_school_name', 1) ?>> Show School Name</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_school_address" value="1" <?= $checked('show_school_address', 1) ?>> Show School Address</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_school_phone" value="1" <?= $checked('show_school_phone', 1) ?>> Show School Phone</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_school_email" value="1" <?= $checked('show_school_email', 1) ?>> Show School Email</label>
+                    <label><span>Header Height</span><input type="number" name="header_height" value="<?= e((int) ($template['header_height'] ?? 150)) ?>"></label>
+                    <label class="upload-field">
+                        <span>Logo Image</span>
+                        <input type="file" name="logo" accept=".jpg,.jpeg,.png,.gif,.webp">
+                        <?php if (!empty($template['logo'])): ?><a href="<?= e($template['logo']) ?>" target="_blank">View current logo</a><?php endif; ?>
+                    </label>
+                    <label class="upload-field">
+                        <span>Background Image</span>
+                        <input type="file" name="background" accept=".jpg,.jpeg,.png,.gif,.webp">
+                        <?php if (!empty($template['background'])): ?><a href="<?= e($template['background']) ?>" target="_blank">View current background</a><?php endif; ?>
+                    </label>
+                    <label class="toggle-field"><input type="checkbox" name="show_border" value="1" <?= $checked('show_border', 1) ?>> Show Border</label>
+                    <label><span>Border Width</span><input type="number" name="border_width" value="<?= e((int) ($template['border_width'] ?? 2)) ?>"></label>
+                    <label><span>Border Colour</span><input type="color" name="border_color" value="<?= e((string) ($template['border_color'] ?? '#222222')) ?>"></label>
+                    <label class="toggle-field"><input type="checkbox" name="inner_border" value="1" <?= $checked('inner_border', 1) ?>> Inner Border</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_watermark" value="1" <?= $checked('show_watermark', 0) ?>> Show Watermark</label>
+                    <label><span>Watermark Image</span><input type="file" name="watermark_image" accept=".jpg,.jpeg,.png,.gif,.webp"></label>
+                    <label><span>Watermark Opacity</span><input type="text" name="watermark_opacity" value="<?= e((string) ($template['watermark_opacity'] ?? 0.06)) ?>"></label>
+                    <label><span>Watermark Size %</span><input type="number" name="watermark_size" value="<?= e((int) ($template['watermark_size'] ?? 70)) ?>"></label>
+                </div>
+            </fieldset>
+
+            <fieldset class="marksheet-section">
+                <legend>Student Information</legend>
+                <div class="marksheet-field-grid">
+                    <label class="toggle-field"><input type="checkbox" name="show_student_photo" value="1" <?= $checked('show_student_photo', 1) ?>> Show Student Photo</label>
+                    <label><span>Photo Style</span><select name="photo_style"><option value="Square" <?= ($template['photo_style'] ?? 'Square') === 'Square' ? 'selected' : '' ?>>Square</option><option value="Round" <?= ($template['photo_style'] ?? 'Square') === 'Round' ? 'selected' : '' ?>>Round</option></select></label>
+                    <label><span>Photo Width</span><input type="number" name="student_photo_width" value="<?= e((int) ($template['student_photo_width'] ?? 110)) ?>"></label>
+                    <label><span>Photo Height</span><input type="number" name="student_photo_height" value="<?= e((int) ($template['student_photo_height'] ?? 130)) ?>"></label>
+                    <label class="toggle-field"><input type="checkbox" name="show_biodata_section" value="1" <?= $checked('show_biodata_section', 1) ?>> Show Biodata Section</label>
+                    <label><span>Biodata Layout</span>
+                        <select name="biodata_layout">
+                            <?php foreach ($biodataLayouts as $layout): ?>
+                                <option value="<?= e($layout) ?>" <?= ($template['biodata_layout'] ?? 'Table') === $layout ? 'selected' : '' ?>><?= e($layout) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label class="toggle-field"><input type="checkbox" name="show_register_number" value="1" <?= $checked('show_register_number', 1) ?>> Show Register Number</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_roll_number" value="1" <?= $checked('show_roll_number', 0) ?>> Show Roll Number</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_father_name" value="1" <?= $checked('show_father_name', 1) ?>> Show Father Name</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_mother_name" value="1" <?= $checked('show_mother_name', 1) ?>> Show Mother Name</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_admission_date" value="1" <?= $checked('show_admission_date', 1) ?>> Show Admission Date</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_date_of_birth" value="1" <?= $checked('show_date_of_birth', 1) ?>> Show Date of Birth</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_gender" value="1" <?= $checked('show_gender', 1) ?>> Show Gender</label>
+                </div>
+            </fieldset>
+
+            <fieldset class="marksheet-section">
+                <legend>Result Table</legend>
+                <div class="marksheet-field-grid">
+                    <label class="toggle-field"><input type="checkbox" name="show_subject_table" value="1" <?= $checked('show_subject_table', 1) ?>> Show Subject Table</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_subject_name" value="1" <?= $checked('show_subject_name', 1) ?>> Show Subject Name</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_dynamic_mark_distribution_columns" value="1" <?= $checked('show_dynamic_mark_distribution_columns', 1) ?>> Show Dynamic Mark Distribution Columns</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_total" value="1" <?= $checked('show_total', 1) ?>> Show Total</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_grade" value="1" <?= $checked('show_grade', 1) ?>> Show Grade</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_grade_point" value="1" <?= $checked('show_grade_point', 1) ?>> Show Grade Point</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_remark" value="1" <?= $checked('show_remark', 1) ?>> Show Remark</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_subject_position" value="1" <?= $checked('show_subject_position', 1) ?>> Show Subject Position</label>
+                    <label><span>Table Border Colour</span><input type="color" name="table_border_color" value="<?= e((string) ($template['table_border_color'] ?? '#222222')) ?>"></label>
+                    <label><span>Table Header Background</span><input type="color" name="table_header_background" value="<?= e((string) ($template['table_header_background'] ?? '#eaf2ef')) ?>"></label>
+                </div>
+            </fieldset>
+
+            <fieldset class="marksheet-section">
+                <legend>Summary And Attendance</legend>
+                <div class="marksheet-field-grid">
+                    <label class="toggle-field"><input type="checkbox" name="show_grand_total" value="1" <?= $checked('show_grand_total', 1) ?>> Show Grand Total</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_total_obtainable" value="1" <?= $checked('show_total_obtainable', 1) ?>> Show Total Obtainable</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_average" value="1" <?= $checked('show_average', 1) ?>> Show Average</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_grand_total_in_words" value="1" <?= $checked('show_grand_total_in_words', 1) ?>> Show Grand Total In Words</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_gpa" value="1" <?= $checked('show_gpa', 1) ?>> Show GPA</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_result_status" value="1" <?= $checked('show_result_status', 1) ?>> Show Result Status</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_position" value="1" <?= $checked('show_position', 1) ?>> Show Position</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_cumulative_average" value="1" <?= $checked('show_cumulative_average', 1) ?>> Show Cumulative Average</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_class_average" value="1" <?= $checked('show_class_average', 1) ?>> Show Class Average</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_attendance" value="1" <?= $checked('show_attendance', 1) ?>> Show Attendance</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_working_days" value="1" <?= $checked('show_working_days', 1) ?>> Show Working Days</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_days_attended" value="1" <?= $checked('show_days_attended', 1) ?>> Show Days Attended</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_attendance_percentage" value="1" <?= $checked('show_attendance_percentage', 1) ?>> Show Attendance Percentage</label>
+                    <label><span>Pass Mark</span><input type="number" name="pass_mark" value="<?= e((float) ($template['pass_mark'] ?? 40)) ?>"></label>
+                    <label><span>Pass Label</span><input type="text" name="pass_label" value="<?= $value('pass_label', 'Pass') ?>"></label>
+                    <label><span>Fail Label</span><input type="text" name="fail_label" value="<?= $value('fail_label', 'Fail') ?>"></label>
+                </div>
+            </fieldset>
+
+            <fieldset class="marksheet-section">
+                <legend>Grading, Comments And Footer</legend>
+                <div class="marksheet-field-grid">
+                    <label class="toggle-field"><input type="checkbox" name="show_grading_scale" value="1" <?= $checked('show_grading_scale', 1) ?>> Show Grading Scale</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_min_percentage" value="1" <?= $checked('show_min_percentage', 1) ?>> Show Minimum Percentage</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_max_percentage" value="1" <?= $checked('show_max_percentage', 1) ?>> Show Maximum Percentage</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_grade_point_scale" value="1" <?= $checked('show_grade_point_scale', 1) ?>> Show Grade Point</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_grade_remark" value="1" <?= $checked('show_grade_remark', 1) ?>> Show Grade Remark</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_principal_comment" value="1" <?= $checked('show_principal_comment', 1) ?>> Show Principal Comment</label>
+                    <label class="toggle-field"><input type="checkbox" name="show_teacher_comment" value="1" <?= $checked('show_teacher_comment', 1) ?>> Show Teacher Comment</label>
+                    <label><span>Principal Comment Source</span><input type="text" name="principal_comment_source" value="<?= $value('principal_comment_source', 'settings') ?>"></label>
+                    <label><span>Teacher Comment Source</span><input type="text" name="teacher_comment_source" value="<?= $value('teacher_comment_source', 'exam_comments') ?>"></label>
+                    <label><span>Comment Box Height</span><input type="number" name="comment_box_height" value="<?= e((int) ($template['comment_box_height'] ?? 84)) ?>"></label>
+                    <label class="toggle-field"><input type="checkbox" name="show_principal_signature" value="1" <?= $checked('show_principal_signature', 1) ?>> Show Principal Signature</label>
+                    <label><span>Principal Signature Width</span><input type="number" name="principal_signature_width" value="<?= e((int) ($template['principal_signature_width'] ?? 120)) ?>"></label>
+                    <label class="toggle-field"><input type="checkbox" name="show_class_teacher_signature" value="1" <?= $checked('show_class_teacher_signature', 1) ?>> Show Class Teacher Signature</label>
+                    <label><span>Class Teacher Signature Width</span><input type="number" name="class_teacher_signature_width" value="<?= e((int) ($template['class_teacher_signature_width'] ?? 120)) ?>"></label>
+                    <label class="toggle-field"><input type="checkbox" name="show_school_stamp" value="1" <?= $checked('show_school_stamp', 1) ?>> Show School Stamp</label>
+                    <label><span>School Stamp Width</span><input type="number" name="school_stamp_width" value="<?= e((int) ($template['school_stamp_width'] ?? 120)) ?>"></label>
+                    <label class="toggle-field"><input type="checkbox" name="show_print_date" value="1" <?= $checked('show_print_date', 1) ?>> Show Print Date</label>
+                    <label><span>Print Date Format</span><input type="text" name="print_date_format" value="<?= $value('print_date_format', 'd.M.Y') ?>"></label>
+                    <label class="toggle-field"><input type="checkbox" name="show_powered_by" value="1" <?= $checked('show_powered_by', 0) ?>> Show Powered By Text</label>
+                    <label class="form-wide"><span>Footer Note</span><textarea name="footer_note" rows="3"><?= e((string) ($template['footer_note'] ?? '')) ?></textarea></label>
+                    <label><span>Left Signature</span><input type="file" name="left_signature" accept=".jpg,.jpeg,.png,.gif,.webp"><?php if (!empty($template['left_signature'])): ?><a href="<?= e($template['left_signature']) ?>" target="_blank">View current file</a><?php endif; ?></label>
+                    <label><span>Middle Signature</span><input type="file" name="middle_signature" accept=".jpg,.jpeg,.png,.gif,.webp"><?php if (!empty($template['middle_signature'])): ?><a href="<?= e($template['middle_signature']) ?>" target="_blank">View current file</a><?php endif; ?></label>
+                    <label><span>Right Signature</span><input type="file" name="right_signature" accept=".jpg,.jpeg,.png,.gif,.webp"><?php if (!empty($template['right_signature'])): ?><a href="<?= e($template['right_signature']) ?>" target="_blank">View current file</a><?php endif; ?></label>
+                </div>
+            </fieldset>
+        </div>
+    </section>
+
+    <section class="panel marksheet-panel">
+        <div class="panel-header">
+            <div>
+                <p class="eyebrow">Template content</p>
+                <h3>Header And Footer HTML</h3>
+            </div>
+        </div>
+
+        <div class="marksheet-section-grid">
+            <div class="rich-editor form-wide" data-rich-editor>
+                <div class="editor-title">
+                    <span>Header Content</span>
+                    <button type="button" data-editor-toggle>HTML Code</button>
+                </div>
+                <div class="editor-toolbar">
+                    <button type="button" data-command="bold"><strong>B</strong></button>
+                    <button type="button" data-command="italic"><em>I</em></button>
+                    <button type="button" data-command="underline"><u>U</u></button>
+                    <select data-command="fontName">
+                        <option value="">Font</option>
+                        <option value="Arial">Arial</option>
+                        <option value="Georgia">Georgia</option>
+                        <option value="Tahoma">Tahoma</option>
+                        <option value="Times New Roman">Times New Roman</option>
+                        <option value="Verdana">Verdana</option>
+                    </select>
+                    <select data-command="formatBlock">
+                        <option value="">Style</option>
+                        <option value="h2">Heading</option>
+                        <option value="h3">Subheading</option>
+                        <option value="p">Paragraph</option>
+                        <option value="div">Block</option>
+                    </select>
+                    <input type="color" value="#17394a" data-command="foreColor" title="Text color">
+                    <button type="button" data-create-link>Link</button>
+                </div>
+                <div class="editor-surface" contenteditable="true" data-editor-surface><?= $template['header_content'] ?? $defaultHeader ?></div>
+                <textarea name="header_content" rows="8" data-editor-source><?= e($template['header_content'] ?? $defaultHeader) ?></textarea>
+            </div>
+
+            <div class="rich-editor form-wide" data-rich-editor>
+                <div class="editor-title">
+                    <span>Footer Content</span>
+                    <button type="button" data-editor-toggle>HTML Code</button>
+                </div>
+                <div class="editor-toolbar">
+                    <button type="button" data-command="bold"><strong>B</strong></button>
+                    <button type="button" data-command="italic"><em>I</em></button>
+                    <button type="button" data-command="underline"><u>U</u></button>
+                    <select data-command="fontName">
+                        <option value="">Font</option>
+                        <option value="Arial">Arial</option>
+                        <option value="Georgia">Georgia</option>
+                        <option value="Tahoma">Tahoma</option>
+                        <option value="Times New Roman">Times New Roman</option>
+                        <option value="Verdana">Verdana</option>
+                    </select>
+                    <select data-command="formatBlock">
+                        <option value="">Style</option>
+                        <option value="h3">Subheading</option>
+                        <option value="p">Paragraph</option>
+                        <option value="div">Block</option>
+                    </select>
+                    <input type="color" value="#17394a" data-command="foreColor" title="Text color">
+                    <button type="button" data-create-link>Link</button>
+                </div>
+                <div class="editor-surface" contenteditable="true" data-editor-surface><?= $template['footer_content'] ?? $defaultFooter ?></div>
+                <textarea name="footer_content" rows="6" data-editor-source><?= e($template['footer_content'] ?? $defaultFooter) ?></textarea>
+            </div>
+
+            <div class="form-wide marksheet-token-bank">
+                <div class="panel-header compact">
+                    <div>
+                        <p class="eyebrow">Placeholders</p>
+                        <h3>Insert Template Tokens</h3>
+                    </div>
+                </div>
+                <div class="tag-bank">
+                    <?php foreach ($tags as $tag): ?>
+                        <button type="button" data-template-tag="<?= e($tag) ?>"><?= e($tag) ?></button>
+                    <?php endforeach; ?>
+                </div>
+                <p class="report-sheet-note">Tokens are inserted into the active header or footer editor. Empty values render as blanks instead of fake sample data.</p>
+            </div>
+        </div>
+    </section>
+</form>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <p class="eyebrow">Templates</p>
+            <h3>Template List</h3>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Layout</th>
+                    <th>Photo</th>
+                    <th>Attendance</th>
+                    <th>Grades</th>
+                    <th>Result</th>
+                    <th>Created</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($templates as $templateRow): ?>
+                    <tr>
+                        <td><?= e($templateRow['name']) ?></td>
+                        <td><?= e(($templateRow['paper_size'] ?? 'A4') . ' / ' . ($templateRow['page_layout'] ?? 'Portrait')) ?></td>
+                        <td><?= e(($templateRow['photo_style'] ?? 'Square') . ' / ' . ((int) ($templateRow['photo_size'] ?? 100)) . 'px') ?></td>
+                        <td><span class="status"><?= (int) ($templateRow['attendance_percentage'] ?? 0) === 1 ? 'Shown' : 'Hidden' ?></span></td>
+                        <td><span class="status"><?= (int) ($templateRow['grading_scale'] ?? 0) === 1 ? 'Shown' : 'Hidden' ?></span></td>
+                        <td><span class="status"><?= (int) ($templateRow['result'] ?? 0) === 1 ? 'Shown' : 'Hidden' ?></span></td>
+                        <td><?= e($templateRow['created_at']) ?></td>
+                        <td class="row-actions">
+                            <a href="/exams/marksheet-templates/preview?id=<?= e($templateRow['id']) ?>">View</a>
+                            <?php if (can('exams', 'edit')): ?><a href="/exams/marksheet-templates?edit=<?= e($templateRow['id']) ?>">Edit</a><?php endif; ?>
+                            <?php if (can('exams', 'delete')): ?><form method="post" action="/exams/marksheet-templates/delete"><input type="hidden" name="id" value="<?= e($templateRow['id']) ?>"><button type="submit">Delete</button></form><?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (empty($templates)): ?>
+                    <tr><td colspan="8">No marksheet template has been created yet.</td></tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</section>

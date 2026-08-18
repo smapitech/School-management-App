@@ -1,0 +1,34 @@
+<?php $currentClassPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/'; ?>
+<section class="role-tabs">
+    <?php if (can('classes', 'view_assigned')): ?>
+        <a class="<?= is_active('/teacher/classes') ?>" href="/teacher/classes">My Assigned Classes</a>
+    <?php else: ?>
+        <a class="<?= is_active('/classes') ?>" href="/classes">Overview</a>
+    <?php endif; ?>
+
+    <?php if (can('classes', 'view_subjects')): ?>
+        <a class="<?= is_active('/teacher/classes/subjects') ?>" href="/teacher/classes/subjects">My Assigned Subjects</a>
+    <?php endif; ?>
+
+    <?php if (can('classes', 'view_students')): ?>
+        <a class="<?= is_active('/teacher/classes/students') ?>" href="/teacher/classes/students">My Students</a>
+    <?php endif; ?>
+
+    <?php if (can('classes', 'view_timetable')): ?>
+        <a class="<?= $currentClassPath === '/teacher/classes/timetable' ? 'is-active' : '' ?>" href="/teacher/classes/timetable">Class Timetable</a>
+    <?php endif; ?>
+
+    <?php if (can('classes', 'create_timetable')): ?>
+        <a class="<?= in_array($currentClassPath, ['/teacher/classes/timetable/create', '/teacher/classes/timetable/edit'], true) ? 'is-active' : '' ?>" href="/teacher/classes/timetable/create">Create Timetable</a>
+    <?php endif; ?>
+
+    <?php if (can('classes', 'edit')): ?>
+        <a class="<?= is_active('/classes/assign') ?>" href="/classes/assign">Class Assign</a>
+        <a class="<?= is_active('/classes/subjects') ?>" href="/classes/subjects">Subject Form</a>
+        <a class="<?= is_active('/classes/subject-assign') ?>" href="/classes/subject-assign">Subject Assign</a>
+    <?php endif; ?>
+
+    <?php if (!can('classes', 'view_timetable')): ?>
+        <a class="<?= is_active('/classes/timetable') ?>" href="/classes/timetable">Timetable</a>
+    <?php endif; ?>
+</section>

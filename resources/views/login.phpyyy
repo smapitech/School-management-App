@@ -1,0 +1,142 @@
+<?php
+$schoolName = trim((string) ($settings['school_name'] ?? '')) ?: trim((string) ($settings['site_title'] ?? '')) ?: 'Smapis School Portal';
+$schoolShortName = trim((string) ($settings['school_short_name'] ?? ''));
+$schoolInitials = $schoolShortName !== '' ? strtoupper(substr($schoolShortName, 0, 2)) : strtoupper(substr($schoolName, 0, 2));
+$loginLogo = !empty($settings['logo_path']) ? public_upload_url($settings['logo_path']) : '';
+$loginBackground = !empty($settings['login_background_path']) ? public_upload_url($settings['login_background_path']) : '';
+$currentYear = date('Y');
+?>
+<section class="login-shell <?= $loginBackground !== '' ? 'has-login-background' : '' ?>"<?php if ($loginBackground !== ''): ?> style="--login-bg: url('<?= e($loginBackground) ?>')"<?php endif; ?>>
+    <div class="login-showcase">
+        <div class="login-brand">
+            <div class="login-brand-mark">
+                <?php if ($loginLogo !== ''): ?>
+                    <img src="<?= e($loginLogo) ?>" alt="<?= e($schoolName) ?>">
+                <?php else: ?>
+                    <span class="login-brand-mark-text"><?= e($schoolInitials) ?></span>
+                <?php endif; ?>
+            </div>
+            <div>
+                <div class="login-brand-name"><?= e($schoolName) ?></div>
+                <div class="login-brand-sub"><?= e(($schoolShortName !== '' ? $schoolShortName . ' ' : '') . 'School Management Portal') ?></div>
+            </div>
+        </div>
+
+        <div class="login-hero">
+            <div class="login-hero-label">School Management</div>
+            <h1>One portal for <em>every</em> role in your school</h1>
+            <p class="login-hero-desc">Learning records, finance, communication, and HR all in a single secure workspace built for your school community.</p>
+        </div>
+
+        <div class="login-pills" aria-label="Portal benefits">
+            <div class="login-pill">
+                <span class="login-pill-dot"></span>
+                <strong>Students</strong>
+                <span>Results, homework, fees</span>
+            </div>
+            <div class="login-pill">
+                <span class="login-pill-dot"></span>
+                <strong>Parents</strong>
+                <span>Live monitoring</span>
+            </div>
+            <div class="login-pill">
+                <span class="login-pill-dot"></span>
+                <strong>Staff</strong>
+                <span>Classes and operations</span>
+            </div>
+        </div>
+    </div>
+
+    <article class="login-panel">
+        <div class="login-panel-inner">
+            <div class="login-panel-eyebrow">Secure Sign In</div>
+            <h2 class="login-panel-title">Welcome back</h2>
+            <p class="login-panel-subtitle">Enter your assigned credentials to access your portal.</p>
+
+            <?php if (!empty($_GET['installed'])): ?>
+                <div class="alert-success" role="status" aria-live="polite">Installation complete. You can sign in now.</div>
+            <?php endif; ?>
+
+            <?php if (!empty($error)): ?>
+                <div class="alert-error" role="alert" aria-live="assertive"><?= e($error) ?></div>
+            <?php endif; ?>
+
+            <form class="login-form" method="post" action="/login" data-login-form>
+                <?= csrf_field() ?>
+
+                <label for="login-identifier">
+                    <span>Email, username, or admission number</span>
+                    <input
+                        id="login-identifier"
+                        type="text"
+                        name="email"
+                        value="<?= e($loginIdentifier ?? '') ?>"
+                        placeholder="Enter your login detail"
+                        autocomplete="username"
+                        autocapitalize="none"
+                        autocorrect="off"
+                        spellcheck="false"
+                        required
+                    >
+                </label>
+
+                <label for="login-password">
+                    <span>Password</span>
+                    <div class="login-password-field">
+                        <input
+                            id="login-password"
+                            type="password"
+                            name="password"
+                            placeholder="Enter your password"
+                            autocomplete="current-password"
+                            required
+                            data-password-input
+                        >
+                        <button
+                            type="button"
+                            class="login-password-toggle"
+                            aria-label="Show password"
+                            aria-pressed="false"
+                            data-password-toggle
+                        >
+                            <span data-password-toggle-show><?= module_icon('eye') ?></span>
+                            <span data-password-toggle-hide hidden><?= module_icon('eye-off') ?></span>
+                        </button>
+                    </div>
+                </label>
+
+                <button type="submit" class="login-submit" data-login-submit>
+                    <span class="login-submit-spinner" aria-hidden="true"></span>
+                    <span class="login-submit-label" data-login-submit-label>Sign In</span>
+                    <span class="login-submit-icon" aria-hidden="true"><?= module_icon('arrow-right') ?></span>
+                </button>
+            </form>
+
+            <p class="login-security-note">
+                <span class="login-security-icon" aria-hidden="true"><?= module_icon('shield-check') ?></span>
+                Your account is protected with secure authentication.
+            </p>
+
+            <div class="login-footer">
+                <a class="login-back-link" href="/website">
+                    <span aria-hidden="true"><?= module_icon('arrow-left') ?></span>
+                    <span>Back to school website</span>
+                </a>
+                <small><?= e($currentYear) ?> &middot; Powered by Smapis Technologies</small>
+            </div>
+
+            <?php if (show_sample_login_accounts()): ?>
+                <div class="demo-users">
+                    <strong>Demo Access</strong>
+                    <p>Password for all sample accounts: <code>password</code></p>
+                    <ul>
+                        <li>superadmin@school.test</li>
+                        <li>admin@school.test</li>
+                        <li>teacher@school.test</li>
+                        <li>student_sample@school.test</li>
+                    </ul>
+                </div>
+            <?php endif; ?>
+        </div>
+    </article>
+</section>

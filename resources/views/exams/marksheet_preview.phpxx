@@ -1,0 +1,87 @@
+<?php include __DIR__ . '/nav.php'; ?>
+
+<?php
+    $template = $marksheetTemplate;
+    $replace = [
+        '{name}' => 'Amina Yusuf',
+        '{gender}' => 'Female',
+        '{father_name}' => 'Musa Yusuf',
+        '{mother_name}' => 'Hauwa Yusuf',
+        '{register_no}' => 'ADM-2026-00001',
+        '{academic_session}' => '2026-2027',
+        '{admission_date}' => '2026-05-22',
+        '{class}' => 'Primary 1',
+        '{section}' => 'A',
+        '{religion}' => 'Christianity',
+        '{birthday}' => '2018-04-18',
+        '{email}' => 'student@example.com',
+        '{present_address}' => '12 School Road',
+        '{exam_name}' => 'First Term Examination',
+        '{print_date}' => date('Y-m-d'),
+        '{principal_comments}' => 'A promising performance. Keep improving.',
+        '{teacher_comments}' => 'Good class participation and steady progress.',
+        '{institute_name}' => $settings['school_name'] ?? 'Custom School Academy',
+        '{institute_email}' => $settings['school_email'] ?? 'info@school.test',
+        '{institute_address}' => $settings['school_address'] ?? 'School Address',
+        '{institute_mobile_no}' => $settings['school_phone'] ?? '',
+    ];
+    $logo = $template['logo'] ?: ($settings['logo_path'] ?? '');
+    $replace['{logo}'] = $logo ? '<img src="' . e($logo) . '" alt="Logo">' : '';
+    foreach (['left_signature', 'middle_signature', 'right_signature'] as $signature) {
+        $replace['{' . $signature . '}'] = $template[$signature] ? '<img src="' . e($template[$signature]) . '" alt="' . e($signature) . '">' : '<span class="signature-line"></span>';
+    }
+    $replace['{student_photo}'] = '<span class="preview-photo ' . (strtolower($template['photo_style']) === 'round' ? 'is-round' : '') . '" style="width:' . e($template['photo_size']) . 'px;height:' . e($template['photo_size']) . 'px;">PHOTO</span>';
+    $header = str_replace(array_keys($replace), array_values($replace), $template['header_content']);
+    $footer = str_replace(array_keys($replace), array_values($replace), $template['footer_content']);
+?>
+
+<section class="module-hero no-print">
+    <div>
+        <p class="eyebrow">Template preview</p>
+        <h2><?= e($template['name']) ?></h2>
+        <p>This preview shows how the report sheet will be presented to students and parents.</p>
+    </div>
+    <button class="secondary-action" type="button" data-print>Print Preview</button>
+</section>
+
+<section class="marksheet-preview <?= strtolower(e($template['page_layout'])) ?>">
+    <?php if (!empty($template['background'])): ?><img class="marksheet-bg" src="<?= e($template['background']) ?>" alt=""><?php endif; ?>
+    <div class="marksheet-paper" style="padding: <?= e($template['top_space']) ?>px <?= e($template['right_space']) ?>px <?= e($template['bottom_space']) ?>px <?= e($template['left_space']) ?>px;">
+        <header><?= $header ?></header>
+        <table>
+            <thead>
+                <tr>
+                    <th>Subject</th>
+                    <th>Score</th>
+                    <th>Obtainable</th>
+                    <th>Grade</th>
+                    <?php if ((int) $template['remark'] === 1): ?><th>Remark</th><?php endif; ?>
+                    <?php if ((int) $template['class_average'] === 1): ?><th>Class Average</th><?php endif; ?>
+                    <?php if ((int) $template['subject_position'] === 1): ?><th>Subject Position</th><?php endif; ?>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ([['English', 76, 100, 'A', 'Excellent'], ['Mathematics', 68, 100, 'B', 'Very Good'], ['Basic Science', 59, 100, 'C', 'Good']] as $row): ?>
+                    <tr>
+                        <td><?= e($row[0]) ?></td><td><?= e($row[1]) ?></td><td><?= e($row[2]) ?></td><td><?= e($row[3]) ?></td>
+                        <?php if ((int) $template['remark'] === 1): ?><td><?= e($row[4]) ?></td><?php endif; ?>
+                        <?php if ((int) $template['class_average'] === 1): ?><td>61.5</td><?php endif; ?>
+                        <?php if ((int) $template['subject_position'] === 1): ?><td>2nd</td><?php endif; ?>
+                    </tr>
+                <?php endforeach; ?>
+                <tr><th>Grand Total</th><td colspan="6">203 / 300, Average: 67.6%</td></tr>
+                <?php if ((int) $template['result'] === 1): ?><tr><th>Result</th><td colspan="6">Pass</td></tr><?php endif; ?>
+                <?php if ((int) $template['position'] === 1): ?><tr><th>Position</th><td colspan="6">3rd</td></tr><?php endif; ?>
+            </tbody>
+        </table>
+        <div class="marksheet-two-col">
+            <?php if ((int) $template['attendance_percentage'] === 1): ?>
+                <table><tbody><tr><th colspan="2">Attendance</th></tr><tr><td>Working Days</td><td>100</td></tr><tr><td>Days Attended</td><td>92</td></tr><tr><td>Percentage</td><td>92%</td></tr></tbody></table>
+            <?php endif; ?>
+            <?php if ((int) $template['grading_scale'] === 1): ?>
+                <table><tbody><tr><th>Grade</th><th>Min</th><th>Max</th></tr><tr><td>A</td><td>70</td><td>100</td></tr><tr><td>B</td><td>60</td><td>69</td></tr><tr><td>C</td><td>50</td><td>59</td></tr><tr><td>F</td><td>0</td><td>39</td></tr></tbody></table>
+            <?php endif; ?>
+        </div>
+        <footer><?= $footer ?></footer>
+    </div>
+</section>

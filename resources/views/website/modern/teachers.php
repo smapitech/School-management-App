@@ -1,0 +1,8 @@
+<?php require __DIR__ . '/partials/header.php'; ?>
+<main id="main-content">
+    <section class="website-pro-page-hero"><span class="website-pro-eyebrow">Our educators</span><h1><?= e($sections['teachers_title'] ?? 'Meet Our Teachers') ?></h1><p>Dedicated professionals who guide, encourage and inspire every learner.</p></section>
+    <section class="website-pro-directory">
+        <?php if (!empty($teachers)): ?><div class="website-pro-teacher-grid"><?php foreach ($teachers as $teacher): ?><article><?php if (!empty($teacher['photo_path'])): ?><img src="<?= e(public_upload_url($teacher['photo_path'])) ?>" alt="<?= e($teacher['full_name']) ?>" loading="lazy"><?php else: ?><span class="website-pro-person-placeholder"><?= e(strtoupper(substr($teacher['full_name'], 0, 2))) ?></span><?php endif; ?><div><span class="website-pro-role"><?= e($teacher['role_title']) ?><?= $teacher['subject'] ? ' · ' . e($teacher['subject']) : '' ?></span><h2><?= e($teacher['full_name']) ?></h2><?php if (!empty($teacher['biography'])): ?><p><?= e($teacher['biography']) ?></p><?php endif; ?><div class="website-pro-contact-links"><?php if (!empty($websiteSettings['show_teacher_email']) && !empty($teacher['email'])): ?><a href="mailto:<?= e($teacher['email']) ?>">Email teacher</a><?php endif; ?><?php if (!empty($websiteSettings['show_teacher_phone']) && !empty($teacher['phone'])): ?><a href="tel:<?= e($teacher['phone']) ?>">Call teacher</a><?php endif; ?></div></div></article><?php endforeach; ?></div><?php else: ?><div class="website-pro-empty"><h2>Our teaching team will appear here soon.</h2><p>Please check back for staff profiles and introductions.</p></div><?php endif; ?>
+    </section>
+</main>
+<?php require __DIR__ . '/partials/footer.php'; ?>

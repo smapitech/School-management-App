@@ -1,0 +1,227 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App;
+
+final class Modules
+{
+    public static function all(): array
+    {
+        return [
+            'students' => [
+                'title' => 'Students',
+                'icon' => 'users',
+                'description' => 'Admitted student registry generated from the admission module.',
+                'columns' => [],
+            ],
+            'admissions' => [
+                'title' => 'Admissions',
+                'icon' => 'clipboard-list',
+                'description' => 'Online applications, screening, interviews, and acceptance tracking.',
+                'columns' => ['applicant' => 'Applicant', 'class_name' => 'Class', 'guardian' => 'Guardian', 'stage' => 'Stage', 'created_at' => 'Date'],
+                'create' => '/admissions/create',
+                'fields' => ['applicant' => 'Applicant', 'class_name' => 'Class', 'guardian' => 'Guardian', 'stage' => 'Stage'],
+            ],
+            'staff' => [
+                'title' => 'Staff',
+                'icon' => 'id-card',
+                'description' => 'Employee profiles, departments, roles, payroll readiness.',
+                'columns' => ['employee_no' => 'Employee No', 'name' => 'Name', 'role' => 'Role', 'department' => 'Department', 'status' => 'Status'],
+            ],
+            'human_resource' => [
+                'title' => 'Human Resource',
+                'icon' => 'briefcase',
+                'path' => '/human-resource',
+                'description' => 'Staff payroll, salary templates, salary assignment, payment status, and payslips.',
+                'columns' => [],
+                'role_paths' => [
+                    'teacher' => '/teacher/payroll',
+                ],
+                'role_children' => [
+                    'teacher' => [
+                        ['title' => 'Payroll Overview', 'path' => '/teacher/payroll'],
+                        ['title' => 'My Payslips', 'path' => '/teacher/payslips'],
+                        ['title' => 'Allowances', 'path' => '/teacher/allowances'],
+                        ['title' => 'Deductions', 'path' => '/teacher/deductions'],
+                        ['title' => 'Salary Increments', 'path' => '/teacher/increments'],
+                    ],
+                ],
+                'role_titles' => [
+                    'teacher' => 'Payroll',
+                ],
+                'overview_labels' => [
+                    'teacher' => 'Payroll Overview',
+                ],
+            ],
+            'classes' => [
+                'title' => 'Classes',
+                'icon' => 'school',
+                'path' => '/classes',
+                'description' => 'Class sections, teachers, rooms, and capacity planning.',
+                'columns' => ['name' => 'Class', 'teacher' => 'Teacher', 'room' => 'Room', 'capacity' => 'Capacity'],
+                'children' => [
+                    ['title' => 'Class Assign', 'path' => '/classes/assign'],
+                    ['title' => 'Subject Form', 'path' => '/classes/subjects'],
+                    ['title' => 'Assign Subjects to Class', 'path' => '/classes/subject-assign'],
+                    ['title' => 'Timetable', 'path' => '/classes/timetable'],
+                ],
+                'role_paths' => [
+                    'teacher' => '/teacher/classes',
+                ],
+                'role_children' => [
+                    'teacher' => [
+                        ['title' => 'My Assigned Subjects', 'path' => '/teacher/classes/subjects'],
+                        ['title' => 'My Students', 'path' => '/teacher/classes/students'],
+                        ['title' => 'Class Timetable', 'path' => '/teacher/classes/timetable'],
+                        ['title' => 'Create Timetable', 'path' => '/teacher/classes/timetable/create'],
+                    ],
+                ],
+                'overview_labels' => [
+                    'teacher' => 'My Assigned Classes',
+                ],
+            ],
+            'attendance' => [
+                'title' => 'Attendance',
+                'icon' => 'calendar-check',
+                'path' => '/attendance',
+                'description' => 'Daily attendance summaries by class and date.',
+                'columns' => [],
+                'children' => [
+                    ['title' => 'Student Attendance', 'path' => '/attendance/students'],
+                    ['title' => 'Staff Attendance', 'path' => '/attendance/staff'],
+                ],
+                'role_paths' => [
+                    'teacher' => '/teacher/attendance',
+                ],
+                'role_children' => [
+                    'teacher' => [
+                        ['title' => 'Attendance History', 'path' => '/teacher/attendance/history'],
+                        ['title' => 'My Staff Attendance', 'path' => '/teacher/my-attendance'],
+                    ],
+                ],
+                'overview_labels' => [
+                    'teacher' => 'Mark Student Attendance',
+                ],
+            ],
+            'exams' => [
+                'title' => 'Exams',
+                'icon' => 'file-chart',
+                'description' => 'Configured exam records, mark distribution, teacher mark entry, grades, and exam schedules.',
+                'columns' => [],
+                'children' => [
+                    ['title' => 'Mark Distribution', 'path' => '/exams/distribution'],
+                    ['title' => 'Exam Mark', 'path' => '/exams/marks'],
+                    ['title' => 'Exam Schedule', 'path' => '/exams/schedule'],
+                    ['title' => 'Marksheet Template', 'path' => '/exams/marksheet-templates'],
+                ],
+                'role_children' => [
+                    'teacher' => [
+                        ['title' => 'Mark Distribution', 'path' => '/exams/distribution'],
+                        ['title' => 'Exam Mark', 'path' => '/exams/marks'],
+                        ['title' => 'Exam Schedule', 'path' => '/exams/schedule'],
+                    ],
+                ],
+            ],
+            'homework' => [
+                'title' => 'Homework',
+                'icon' => 'book-open-check',
+                'description' => 'Assignments, submissions, teacher feedback, and student school work tracking.',
+                'columns' => [],
+            ],
+            'notifications' => [
+                'title' => 'Notifications',
+                'icon' => 'bell',
+                'path' => '/notifications',
+                'description' => 'School updates, alerts, reminders, and user notifications.',
+                'columns' => [],
+            ],
+            'notification_manager' => [
+                'title' => 'Notification Manager',
+                'icon' => 'bell',
+                'path' => '/notification-manager',
+                'description' => 'Send role, user, and global notifications across the school portal.',
+                'columns' => [],
+            ],
+            'website' => [
+                'title' => 'Website Manager',
+                'icon' => 'globe',
+                'path' => '/website-manager',
+                'description' => 'Select frontend templates, edit website content, manage gallery, teachers, and contact messages.',
+                'columns' => [],
+                'children' => [
+                    ['title' => 'Website Editor', 'path' => '/website-manager'],
+                    ['title' => 'Edit Website Content', 'path' => '/website-manager/edit'],
+                    ['title' => 'Student Gallery', 'path' => '/website-manager/gallery'],
+                    ['title' => 'Teachers', 'path' => '/website-manager/teachers'],
+                    ['title' => 'Parent Reviews', 'path' => '/website-manager/reviews'],
+                    ['title' => 'Contact Messages', 'path' => '/website-manager/contact-messages'],
+                ],
+            ],
+            'library' => [
+                'title' => 'Library',
+                'icon' => 'library',
+                'description' => 'Book inventory, copies, borrowing readiness, and stock status.',
+                'columns' => ['title' => 'Book', 'author' => 'Author', 'copies' => 'Copies', 'status' => 'Status'],
+            ],
+            'communication' => [
+                'title' => 'Communication',
+                'icon' => 'messages',
+                'description' => 'Announcements, circulars, SMS/email/WhatsApp campaign planning.',
+                'columns' => [],
+                'children' => [
+                    ['title' => 'Internal Messaging', 'path' => '/communication/internal'],
+                    ['title' => 'Invoice Messages', 'path' => '/communication/invoices'],
+                    ['title' => 'Reminder Messages', 'path' => '/communication/reminders'],
+                    ['title' => 'API Setup', 'path' => '/communication/setup'],
+                ],
+                'role_paths' => [
+                    'teacher' => '/teacher/messages',
+                ],
+                'role_children' => [
+                    'teacher' => [
+                        ['title' => 'Parent Messages', 'path' => '/teacher/messages/parents'],
+                        ['title' => 'Teacher Messages', 'path' => '/teacher/messages/teachers'],
+                    ],
+                ],
+                'overview_labels' => [
+                    'teacher' => 'Conversations',
+                ],
+            ],
+            'accounting' => [
+                'title' => 'Accounting',
+                'icon' => 'wallet',
+                'description' => 'Student fee collections, office deposits, expenses, balances, and finance reports.',
+                'columns' => [],
+                'children' => [
+                    ['title' => 'Student Accounting', 'path' => '/accounting/student'],
+                    ['title' => 'Office Accounting', 'path' => '/accounting/office'],
+                ],
+            ],
+            'parent_portal' => [
+                'title' => 'Parent Portal',
+                'icon' => 'user-check',
+                'description' => 'Monitor children, attendance, invoices, exam results, homework, and notices.',
+                'columns' => [],
+            ],
+            'student_portal' => [
+                'title' => 'Student Portal',
+                'icon' => 'graduation-cap',
+                'description' => 'View school work, personal details, attendance, fee status, results, and library records.',
+                'columns' => [],
+            ],
+            'reports' => [
+                'title' => 'Reports',
+                'icon' => 'chart',
+                'description' => 'Operational reports for leadership, academics, finance, and attendance.',
+                'columns' => [],
+            ],
+            'settings' => [
+                'title' => 'Settings',
+                'icon' => 'settings',
+                'description' => 'School profile, sessions, terms, grading, branches, and permissions.',
+                'columns' => [],
+            ],
+        ];
+    }
+}

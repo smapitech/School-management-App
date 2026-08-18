@@ -1,0 +1,510 @@
+<?php
+
+declare(strict_types=1);
+
+function e(mixed $value): string
+{
+    return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+}
+
+function app_base_path(): string
+{
+    return dirname(__DIR__);
+}
+
+function app_env_path(): string
+{
+    return app_base_path() . '/.env';
+}
+
+function env(string $key, mixed $default = null): mixed
+{
+    $value = $_ENV[$key] ?? $_SERVER[$key] ?? getenv($key);
+
+    if ($value === false || $value === null) {
+        return $default;
+    }
+
+    if (is_string($value)) {
+        $trimmed = trim($value);
+        $normalized = strtolower($trimmed);
+
+        return match ($normalized) {
+            'true', '(true)', 'yes', 'on' => true,
+            'false', '(false)', 'no', 'off' => false,
+            'null', '(null)' => null,
+            default => $trimmed,
+        };
+    }
+
+    return $value;
+}
+
+function app_environment(): string
+{
+    $environment = trim((string) env('APP_ENV', 'local'));
+
+    return $environment !== '' ? strtolower($environment) : 'local';
+}
+
+function app_debug(): bool
+{
+    $debug = env('APP_DEBUG', app_environment() !== 'production');
+
+    if (is_bool($debug)) {
+        return $debug;
+    }
+
+    return filter_var($debug, FILTER_VALIDATE_BOOL);
+}
+
+function show_sample_login_accounts(): bool
+{
+    $default = app_environment() !== 'production';
+    $show = env('APP_SHOW_SAMPLE_ACCOUNTS', $default);
+
+    if (is_bool($show)) {
+        return $show;
+    }
+
+    return filter_var($show, FILTER_VALIDATE_BOOL);
+}
+
+function app_installed(): bool
+{
+    if (!is_file(app_env_path())) {
+        return false;
+    }
+
+    $installed = env('APP_INSTALLED', null);
+    if ($installed === null) {
+        return app_environment() !== 'production';
+    }
+
+    if (is_bool($installed)) {
+        return $installed;
+    }
+
+    return filter_var($installed, FILTER_VALIDATE_BOOL);
+}
+
+function app_installation_required(): bool
+{
+    if (!is_file(app_env_path())) {
+        return true;
+    }
+
+    if (!app_installed()) {
+        return true;
+    }
+
+    if (app_environment() !== 'production' && !app_request_is_local_host()) {
+        return true;
+    }
+
+    return !app_installation_complete();
+}
+
+function app_request_is_local_host(): bool
+{
+    $host = strtolower(trim((string) ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '')));
+
+    if ($host === '') {
+        return false;
+    }
+
+    return in_array($host, ['localhost', '127.0.0.1', '::1'], true)
+        || str_ends_with($host, '.localhost')
+        || str_ends_with($host, '.test')
+        || str_ends_with($host, '.local');
+}
+
+function app_installation_complete(): bool
+{
+    static $cached = null;
+
+    if ($cached !== null) {
+        return $cached;
+    }
+
+    if (!is_file(app_env_path()) || !app_installed()) {
+        return $cached = false;
+    }
+
+    $driver = strtolower(trim((string) env('DB_CONNECTION', '')));
+
+    try {
+        if ($driver === 'mysql') {
+            foreach (['DB_HOST', 'DB_DATABASE', 'DB_USERNAME'] as $key) {
+                if (trim((string) env($key, '')) === '') {
+                    return $cached = false;
+                }
+            }
+
+            $charset = trim((string) env('DB_CHARSET', 'utf8mb4'));
+            if ($charset === '') {
+                $charset = 'utf8mb4';
+            }
+
+            $socket = trim((string) env('DB_SOCKET', ''));
+            $host = trim((string) env('DB_HOST', '127.0.0.1'));
+            $port = (int) env('DB_PORT', 3306);
+            $database = trim((string) env('DB_DATABASE', ''));
+            $username = (string) env('DB_USERNAME', '');
+            $password = (string) env('DB_PASSWORD', '');
+
+            $dsn = $socket !== ''
+                ? "mysql:unix_socket={$socket};dbname={$database};charset={$charset}"
+                : "mysql:host={$host};port={$port};dbname={$database};charset={$charset}";
+
+            $pdo = new PDO($dsn, $username, $password, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => false,
+            ]);
+
+            $tables = ['users', 'settings', 'website_settings'];
+            $placeholders = implode(',', array_fill(0, count($tables), '?'));
+            $statement = $pdo->prepare(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ({$placeholders})"
+            );
+            $statement->execute($tables);
+
+            if ((int) $statement->fetchColumn() < count($tables)) {
+                return $cached = false;
+            }
+
+            $userCount = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
+
+            return $cached = $userCount > 0;
+        }
+
+        if ($driver === 'sqlite') {
+            $path = (string) env('DB_SQLITE_PATH', app_base_path() . '/storage/database.sqlite');
+            if (!is_file($path)) {
+                return $cached = false;
+            }
+
+            $pdo = new PDO('sqlite:' . $path, null, null, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => false,
+            ]);
+
+            $tables = ['users', 'settings', 'website_settings'];
+            foreach ($tables as $table) {
+                $statement = $pdo->prepare("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?");
+                $statement->execute([$table]);
+                if ((int) $statement->fetchColumn() === 0) {
+                    return $cached = false;
+                }
+            }
+
+            $userCount = (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn();
+
+            return $cached = $userCount > 0;
+        }
+
+        return $cached = false;
+    } catch (Throwable) {
+        return $cached = false;
+    }
+}
+
+function rich_text(mixed $value): string
+{
+    $allowed = '<p><br><strong><b><em><i><u><a><ul><ol><li><h2><h3><font><span><div>';
+    $html = strip_tags((string) $value, $allowed);
+
+    return preg_replace('/\son[a-z]+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)/i', '', $html) ?? '';
+}
+
+function csrf_token(): string
+{
+    if (empty($_SESSION['_csrf_token'])) {
+        $_SESSION['_csrf_token'] = bin2hex(random_bytes(32));
+    }
+
+    return $_SESSION['_csrf_token'];
+}
+
+function csrf_field(): string
+{
+    return '<input type="hidden" name="_csrf_token" value="' . e(csrf_token()) . '">';
+}
+
+function csrf_verify(?string $token): bool
+{
+    return is_string($token) && hash_equals($_SESSION['_csrf_token'] ?? '', $token);
+}
+
+function public_upload_url(?string $path): string
+{
+    $path = trim((string) $path);
+    if ($path === '') {
+        return '';
+    }
+    $path = str_replace('\\', '/', $path);
+    $path = ltrim($path, '/');
+    if (str_starts_with($path, 'public/')) {
+        $path = substr($path, 7);
+    }
+
+    return '/' . $path;
+}
+
+function getAvailableWebsiteTemplates(): array
+{
+    return [
+        'classic' => [
+            'name' => 'Classic School Blue',
+            'description' => 'Bright, friendly school website design with clean blue-and-white school sections.',
+            'view_folder' => 'classic',
+            'preview_image' => '',
+        ],
+        'modern' => [
+            'name' => 'Premium Academy Gold',
+            'description' => 'Elegant navy-and-gold private academy design with cinematic premium sections.',
+            'view_folder' => 'modern',
+            'preview_image' => '',
+        ],
+    ];
+}
+
+function ui_theme_presets(): array
+{
+    return [
+        'gmail_material' => [
+            'name' => 'Gmail Material Default',
+            'colors' => [
+                'app_background' => '#FFFFFF',
+                'sidebar_background' => '#F2F6FC',
+                'primary_button_background' => '#C2E7FF',
+                'primary_button_text' => '#001D35',
+                'active_sidebar_background' => '#C2E7FF',
+                'active_sidebar_text' => '#0B57D0',
+                'inactive_sidebar_text' => '#444746',
+                'topbar_background' => '#FFFFFF',
+                'banner_background' => '#EAF1FB',
+                'card_background' => '#FFFFFF',
+            ],
+        ],
+        'classic_blue' => [
+            'name' => 'Classic Blue School',
+            'colors' => [
+                'app_background' => '#F8FAFC',
+                'sidebar_background' => '#EAF4FF',
+                'primary_button_background' => '#2563EB',
+                'primary_button_text' => '#FFFFFF',
+                'active_sidebar_background' => '#DBEAFE',
+                'active_sidebar_text' => '#1D4ED8',
+                'inactive_sidebar_text' => '#475569',
+                'topbar_background' => '#FFFFFF',
+                'banner_background' => '#EFF6FF',
+                'card_background' => '#FFFFFF',
+            ],
+        ],
+        'premium_navy_gold' => [
+            'name' => 'Premium Navy Gold',
+            'colors' => [
+                'app_background' => '#F8F7F2',
+                'sidebar_background' => '#0F172A',
+                'primary_button_background' => '#D4AF37',
+                'primary_button_text' => '#111827',
+                'active_sidebar_background' => '#1E293B',
+                'active_sidebar_text' => '#FACC15',
+                'inactive_sidebar_text' => '#CBD5E1',
+                'topbar_background' => '#FFFFFF',
+                'banner_background' => '#FFF7D6',
+                'card_background' => '#FFFFFF',
+            ],
+        ],
+        'green_academy' => [
+            'name' => 'Green Academy',
+            'colors' => [
+                'app_background' => '#F7FEF9',
+                'sidebar_background' => '#ECFDF5',
+                'primary_button_background' => '#22C55E',
+                'primary_button_text' => '#FFFFFF',
+                'active_sidebar_background' => '#DCFCE7',
+                'active_sidebar_text' => '#15803D',
+                'inactive_sidebar_text' => '#365346',
+                'topbar_background' => '#FFFFFF',
+                'banner_background' => '#F0FDF4',
+                'card_background' => '#FFFFFF',
+            ],
+        ],
+        'purple_modern' => [
+            'name' => 'Purple Modern',
+            'colors' => [
+                'app_background' => '#FBFAFF',
+                'sidebar_background' => '#F3E8FF',
+                'primary_button_background' => '#7C3AED',
+                'primary_button_text' => '#FFFFFF',
+                'active_sidebar_background' => '#E9D5FF',
+                'active_sidebar_text' => '#6D28D9',
+                'inactive_sidebar_text' => '#4B5563',
+                'topbar_background' => '#FFFFFF',
+                'banner_background' => '#F5F3FF',
+                'card_background' => '#FFFFFF',
+            ],
+        ],
+        'custom' => [
+            'name' => 'Custom',
+            'colors' => [],
+        ],
+    ];
+}
+
+function ui_theme_default_colors(): array
+{
+    return ui_theme_presets()['gmail_material']['colors'];
+}
+
+function is_valid_hex_color(mixed $value): bool
+{
+    return is_string($value) && preg_match('/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/', trim($value)) === 1;
+}
+
+function normalize_hex_color(mixed $value, string $fallback = '#FFFFFF'): string
+{
+    $value = trim((string) $value);
+
+    if (!is_valid_hex_color($value)) {
+        return strtoupper($fallback);
+    }
+
+    $hex = strtoupper($value);
+    if (strlen($hex) === 4) {
+        $hex = '#' . $hex[1] . $hex[1] . $hex[2] . $hex[2] . $hex[3] . $hex[3];
+    }
+
+    return $hex;
+}
+
+function ui_theme_from_settings(array $settings): array
+{
+    $defaults = ui_theme_default_colors();
+    $presets = ui_theme_presets();
+    $preset = (string) ($settings['ui_theme_preset'] ?? 'gmail_material');
+
+    if (!isset($presets[$preset])) {
+        $preset = 'gmail_material';
+    }
+
+    $theme = ['theme_preset' => $preset];
+    foreach ($defaults as $key => $fallback) {
+        $theme[$key] = normalize_hex_color($settings['ui_' . $key] ?? $fallback, $fallback);
+    }
+
+    return $theme;
+}
+
+function notification_type_label(string $type): string
+{
+    return ucwords(str_replace('_', ' ', $type ?: 'general'));
+}
+
+function notification_priority_class(string $priority): string
+{
+    return 'notification-priority-' . (in_array($priority, ['low', 'normal', 'high', 'urgent'], true) ? $priority : 'normal');
+}
+
+function notification_icon(string $type): string
+{
+    return match ($type) {
+        'homework' => 'book',
+        'attendance' => 'calendar',
+        'exam', 'result' => 'file',
+        'fees' => 'money',
+        'message' => 'mail',
+        'announcement' => 'mega',
+        'admission' => 'user+',
+        'staff' => 'staff',
+        'parent' => 'parent',
+        'student' => 'student',
+        'website' => 'web',
+        'system' => 'cog',
+        default => 'bell',
+    };
+}
+
+function time_ago(?string $datetime): string
+{
+    if (!$datetime || strtotime($datetime) === false) {
+        return '';
+    }
+    $seconds = max(0, time() - strtotime($datetime));
+    if ($seconds < 60) {
+        return 'just now';
+    }
+    $minutes = intdiv($seconds, 60);
+    if ($minutes < 60) {
+        return $minutes . ' min ago';
+    }
+    $hours = intdiv($minutes, 60);
+    if ($hours < 24) {
+        return $hours . ' hr ago';
+    }
+    $days = intdiv($hours, 24);
+    if ($days < 7) {
+        return $days . ' day' . ($days === 1 ? '' : 's') . ' ago';
+    }
+
+    return date('M j, Y', strtotime($datetime));
+}
+
+function money(mixed $value): string
+{
+    return 'NGN ' . number_format((float) $value, 0);
+}
+
+function is_active(string $path): string
+{
+    $current = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+
+    return $current === $path ? 'is-active' : '';
+}
+
+function role_name(string $role): string
+{
+    return \App\Auth::ROLES[$role] ?? ucfirst($role);
+}
+
+function can(string $module, string $action = 'view'): bool
+{
+    return \App\Auth::can($module, $action);
+}
+
+function module_icon(string $name): string
+{
+    $icons = [
+        'layout-dashboard' => '<path d="M3 13h8V3H3v10Z"></path><path d="M13 21h8V11h-8v10Z"></path><path d="M13 3v6h8V3h-8Z"></path><path d="M3 21h8v-6H3v6Z"></path>',
+        'users' => '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>',
+        'clipboard-list' => '<rect x="8" y="2" width="8" height="4" rx="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="M8 12h.01"></path><path d="M12 12h4"></path><path d="M8 16h.01"></path><path d="M12 16h4"></path>',
+        'id-card' => '<rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="9" cy="10" r="2"></circle><path d="M15 8h2"></path><path d="M15 12h2"></path><path d="M7 16h4"></path>',
+        'briefcase' => '<path d="M10 6V5a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v1"></path><rect x="3" y="6" width="18" height="14" rx="2"></rect><path d="M3 12h18"></path>',
+        'school' => '<path d="M4 21V10l8-5 8 5v11"></path><path d="M12 21v-6"></path><path d="M8 21v-3"></path><path d="M16 21v-3"></path><path d="M10 10h4"></path>',
+        'calendar-check' => '<path d="M8 2v4"></path><path d="M16 2v4"></path><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M3 10h18"></path><path d="m9 16 2 2 4-5"></path>',
+        'file-chart' => '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"></path><path d="M14 2v6h6"></path><path d="M8 18v-4"></path><path d="M12 18v-6"></path><path d="M16 18v-2"></path>',
+        'book-open-check' => '<path d="M12 7v14"></path><path d="M3 18a2 2 0 0 0 2 2h7V5H5a2 2 0 0 0-2 2v11Z"></path><path d="M21 18a2 2 0 0 1-2 2h-7V5h7a2 2 0 0 1 2 2v5"></path><path d="m16 16 2 2 4-5"></path>',
+        'library' => '<path d="M4 19.5V5a2 2 0 0 1 2-2h3v18H6a2 2 0 0 1-2-1.5Z"></path><path d="M9 3h6v18H9"></path><path d="M15 3h3a2 2 0 0 1 2 2v14.5a2 2 0 0 1-2 1.5h-3"></path>',
+        'messages' => '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z"></path><path d="M8 9h8"></path><path d="M8 13h5"></path>',
+        'messages-square' => '<rect x="3" y="3" width="18" height="18" rx="3"></rect><path d="M8 9h8"></path><path d="M8 13h5"></path>',
+        'mail' => '<rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="m3 7 9 6 9-6"></path>',
+        'calendar-days' => '<path d="M8 2v4"></path><path d="M16 2v4"></path><rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M3 10h18"></path><path d="M7 14h3"></path><path d="M7 18h3"></path><path d="M14 14h3"></path><path d="M14 18h3"></path>',
+        'badge-check' => '<path d="M8.6 2.6 12 4.5l3.4-1.9 1.9 3.4 3.8.6-.6 3.8 1.9 3.4-3.4 1.9-.6 3.8-3.8-.6-3.4 1.9-1.9-3.4-3.8-.6.6-3.8-1.9-3.4 3.4-1.9.6-3.8 3.8.6Z"></path><path d="m9 12 2 2 4-4"></path>',
+        'wallet' => '<path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2"></path><path d="M16 11h5v6h-5a3 3 0 0 1 0-6Z"></path>',
+        'user-check' => '<path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><path d="m17 11 2 2 4-5"></path>',
+        'graduation-cap' => '<path d="M22 10 12 5 2 10l10 5 10-5Z"></path><path d="M6 12v5c3 2 9 2 12 0v-5"></path>',
+        'chart' => '<path d="M3 3v18h18"></path><path d="M7 16v-5"></path><path d="M12 16V8"></path><path d="M17 16v-3"></path>',
+        'search' => '<circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.3-4.3"></path>',
+        'bell' => '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M10 21h4"></path>',
+        'settings' => '<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"></path><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.38 1.05V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8.6 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1.05-.38H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 8.6a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .38-1.05V3a2 2 0 0 1 4 0v.09A1.65 1.65 0 0 0 15.4 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.43.2.78.55 1 1 .2.32.55.5.93.5H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51.5Z"></path>',
+        'globe' => '<circle cx="12" cy="12" r="10"></circle><path d="M2 12h20"></path><path d="M12 2a15.3 15.3 0 0 1 0 20"></path><path d="M12 2a15.3 15.3 0 0 0 0 20"></path>',
+    ];
+
+    $paths = $icons[$name] ?? $icons['school'];
+
+    return '<svg class="module-svg" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' . $paths . '</svg>';
+}

@@ -1,0 +1,62 @@
+<section class="login-shell <?= !empty($settings['login_background_path']) ? 'has-login-background' : '' ?>" <?php if (!empty($settings['login_background_path'])): ?>style="--login-bg: url('<?= e($settings['login_background_path']) ?>')"<?php endif; ?>>
+    <div class="login-showcase">
+        <div class="login-brand-lockup">
+            <?php if (!empty($settings['logo_path'])): ?>
+                <img src="<?= e($settings['logo_path']) ?>" alt="<?= e($settings['school_name'] ?? 'Smapis School Portal') ?>">
+            <?php else: ?>
+                <span>SP</span>
+            <?php endif; ?>
+            <div>
+                <p class="eyebrow">African school management portal</p>
+                <h2>Smapis School Portal</h2>
+            </div>
+        </div>
+        <h1>Learning, records, finance, and communication in one trusted school workspace.</h1>
+        <div class="login-feature-grid">
+            <article><strong>Students</strong><span>Results, homework, fees, and attendance.</span></article>
+            <article><strong>Parents</strong><span>Children monitoring and school messages.</span></article>
+            <article><strong>Staff</strong><span>Classes, exams, HR, and daily operations.</span></article>
+        </div>
+    </div>
+
+    <article class="login-panel">
+        <div class="login-panel-header">
+            <p class="eyebrow">Secure sign in</p>
+            <h2>Welcome Back</h2>
+            <p>Use your assigned username or email to open your personalized portal.</p>
+        </div>
+
+        <?php if ($error): ?>
+            <div class="alert-error"><?= e($error) ?></div>
+        <?php endif; ?>
+
+        <?php if (!empty($_GET['installed'])): ?>
+            <div class="alert-success">Installation completed successfully. Please sign in.</div>
+        <?php endif; ?>
+
+        <form class="login-form" method="post" action="/login">
+            <label>
+                <span>Email or Username</span>
+                <input type="text" name="email" placeholder="name@school.edu or username" required>
+            </label>
+            <label>
+                <span>Password</span>
+                <input type="password" name="password" placeholder="Enter password" required>
+            </label>
+            <button type="submit">Sign In</button>
+        </form>
+
+        <?php if (show_sample_login_accounts()): ?>
+            <div class="demo-users">
+                <strong>Sample access</strong>
+                <p>Password for sample accounts: <code>password</code></p>
+                <ul>
+                    <li>superadmin@school.test</li>
+                    <li>admin@school.test</li>
+                    <li>teacher@school.test</li>
+                    <li>student_sample@school.test</li>
+                </ul>
+            </div>
+        <?php endif; ?>
+    </article>
+</section>

@@ -1,0 +1,37 @@
+<section class="module-hero">
+    <div>
+        <p class="eyebrow">Subject Assign</p>
+        <h2>Assign Subject To Class</h2>
+        <p>Select class, section, and subject. If no subject exists, create a subject first.</p>
+    </div>
+</section>
+
+<?php require __DIR__ . '/nav.php'; ?>
+
+<section class="panel">
+    <div class="panel-header"><div><p class="eyebrow">Assignment form</p><h3>Subject Assign</h3></div></div>
+    <?php if (empty($subjects)): ?>
+        <div class="alert-error">Create Subject first.</div>
+        <a class="primary-action" href="/classes/subjects">Create Subject</a>
+    <?php else: ?>
+        <form class="payroll-form" method="post" action="/classes/subject-assign/save">
+            <label><span>Class</span><select name="class_name" required><?php foreach ($classOptions as $class): ?><option value="<?= e($class) ?>"><?= e($class) ?></option><?php endforeach; ?></select></label>
+            <label><span>Section</span><select name="section" required><?php foreach ($sections as $section): ?><option value="<?= e($section) ?>"><?= e($section) ?></option><?php endforeach; ?></select></label>
+            <label><span>Subject</span><select name="subject_id" required><?php foreach ($subjects as $subject): ?><option value="<?= e($subject['id']) ?>"><?= e($subject['subject_name']) ?></option><?php endforeach; ?></select></label>
+            <button type="submit">Assign Subject</button>
+        </form>
+    <?php endif; ?>
+</section>
+
+<section class="panel">
+    <div class="panel-header"><div><p class="eyebrow">Assignments</p><h3>Subject Assignment List</h3></div></div>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Class</th><th>Section</th><th>Subject</th><th>Type</th><th>Code</th></tr></thead>
+            <tbody>
+                <?php foreach ($assignments as $row): ?><tr><td><?= e($row['class_name']) ?></td><td><?= e($row['section']) ?></td><td><?= e($row['subject_name']) ?></td><td><?= e($row['subject_type']) ?></td><td><?= e($row['subject_code']) ?></td></tr><?php endforeach; ?>
+                <?php if (empty($assignments)): ?><tr><td colspan="5">No subject assignment yet.</td></tr><?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</section>

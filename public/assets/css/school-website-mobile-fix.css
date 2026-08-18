@@ -1,0 +1,155 @@
+/* Mobile usability repair for the public school website.
+   Keeps existing design, but fixes menu layering, tap targets, overflow and blocked clicks. */
+:root{
+    --sw-mobile-safe-x: clamp(16px, 4vw, 24px);
+}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;}
+.website-pro{overflow-x:hidden;}
+.website-pro a,
+.website-pro button,
+.website-pro input,
+.website-pro select,
+.website-pro textarea{touch-action:manipulation;}
+.website-pro-button,
+.website-pro-portal-link,
+.website-pro-text-link,
+.website-pro-footer a,
+.website-pro-nav a,
+.website-pro-slider-arrow,
+.website-pro-slider-dots button,
+.website-pro-menu-button{position:relative;z-index:8;pointer-events:auto;}
+.website-pro-slide-overlay,.website-pro-slide-placeholder{pointer-events:none;}
+.website-pro-slide-content{pointer-events:auto;}
+.website-pro-header{z-index:5000;}
+.website-pro-header-inner{position:relative;}
+.website-pro-menu-button{display:none;align-items:center;justify-content:center;flex-direction:column;flex:0 0 46px;min-width:46px;min-height:46px;cursor:pointer;}
+.website-pro-menu-button span:not(.sr-only){width:22px;transition:transform .2s ease,opacity .2s ease;}
+.website-pro-menu-button[aria-expanded="true"] span:not(.sr-only):nth-child(1){transform:translateY(6px) rotate(45deg);}
+.website-pro-menu-button[aria-expanded="true"] span:not(.sr-only):nth-child(2){opacity:0;}
+.website-pro-menu-button[aria-expanded="true"] span:not(.sr-only):nth-child(3){transform:translateY(-6px) rotate(-45deg);}
+.website-pro-nav{z-index:5100;}
+.website-pro-nav a{min-height:44px;display:inline-flex;align-items:center;}
+.website-pro-brand.has-full-logo{min-width:0;}
+.website-pro-full-logo{object-fit:contain;}
+.website-pro-slide-content h1{overflow-wrap:anywhere;}
+.website-pro-gallery-mosaic figure,
+.website-pro-teacher-preview article,
+.website-pro-feature-grid article,
+.website-pro-testimonials article{min-width:0;}
+.website-pro-contact-form button,
+.website-pro-contact-form .website-pro-button{width:auto;min-height:50px;}
+@media(max-width:1000px){
+    body.website-menu-open{overflow:hidden;}
+    .website-pro-menu-button{display:flex;}
+    .website-pro-nav{
+        position:fixed;
+        top:80px;
+        right:var(--sw-mobile-safe-x);
+        left:var(--sw-mobile-safe-x);
+        display:flex;
+        flex-direction:column;
+        align-items:stretch;
+        gap:6px;
+        max-height:calc(100vh - 104px);
+        padding:18px;
+        overflow:auto;
+        background:#fff;
+        border:1px solid rgba(24,77,59,.12);
+        border-radius:18px;
+        box-shadow:0 28px 90px rgba(15,47,37,.24);
+        opacity:0;
+        visibility:hidden;
+        pointer-events:none;
+        transform:translateY(-10px);
+        transition:opacity .2s ease,visibility .2s ease,transform .2s ease;
+    }
+    .website-pro-nav.is-open{
+        opacity:1;
+        visibility:visible;
+        pointer-events:auto;
+        transform:translateY(0);
+    }
+    .website-pro-nav a{
+        width:100%;
+        justify-content:space-between;
+        padding:13px 14px!important;
+        color:var(--sw-primary-dark)!important;
+        border-radius:12px;
+        text-decoration:none;
+    }
+    .website-pro-nav a::after{display:none!important;}
+    .website-pro-nav a:hover,
+    .website-pro-nav a:focus-visible,
+    .website-pro-nav a.is-active{background:var(--sw-ivory);outline:none;}
+    .website-pro-portal-link{justify-content:center!important;margin-top:6px;color:#fff!important;background:var(--sw-primary)!important;}
+    .website-pro-header-inner{width:calc(100% - 28px);gap:14px;min-height:76px;}
+    .website-pro-brand.has-full-logo{max-width:min(62vw,300px);height:54px;}
+    .website-pro-full-logo{max-width:100%;max-height:54px;}
+    .website-pro-hero-slider{min-height:clamp(560px,75vh,720px);}
+    .website-pro-slide-content{width:calc(100% - 34px);padding:88px 0 132px;}
+    .website-pro-slide-content h1{font-size:clamp(36px,10vw,54px);line-height:1.03;letter-spacing:-.035em;}
+    .website-pro-slide-content p{font-size:16px;line-height:1.65;}
+    .website-pro-hero-actions{display:grid;grid-template-columns:1fr;gap:12px;width:min(100%,360px);}
+    .website-pro-hero-actions .website-pro-button{width:100%;min-height:52px;}
+    .website-pro-slider-arrow{top:auto;bottom:82px;width:44px;height:44px;font-size:30px;transform:none;background:rgba(12,43,33,.72);}
+    .website-pro-slider-arrow.is-prev{left:var(--sw-mobile-safe-x);}
+    .website-pro-slider-arrow.is-next{right:var(--sw-mobile-safe-x);}
+    .website-pro-slider-dots{bottom:92px;}
+    .website-pro-hero-trust{z-index:4;justify-content:flex-start;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:15px var(--sw-mobile-safe-x);white-space:nowrap;}
+    .website-pro-about,
+    .website-pro-purpose,
+    .website-pro-features,
+    .website-pro-programs,
+    .website-pro-showcase,
+    .website-pro-gallery-preview,
+    .website-pro-testimonials,
+    .website-pro-final-cta,
+    .website-pro-about-page,
+    .website-pro-directory,
+    .website-pro-gallery-page,
+    .website-pro-contact-page{overflow:hidden;}
+}
+@media(max-width:680px){
+    .website-pro-header-inner{min-height:70px;}
+    .website-pro-nav{top:74px;}
+    .website-pro-brand.has-full-logo{height:46px;max-width:58vw;}
+    .website-pro-full-logo{max-height:46px;}
+    .website-pro-logo-fallback{width:42px!important;height:42px!important;}
+    .website-pro-hero-slider{min-height:620px;}
+    .website-pro-slide-content{justify-content:center;padding:82px 0 150px;}
+    .website-pro-slide-content h1{margin-top:12px;font-size:clamp(34px,11vw,44px);}
+    .website-pro-slide-content p{font-size:15.5px;line-height:1.58;}
+    .website-pro-slider-arrow{display:grid;bottom:76px;}
+    .website-pro-slider-dots{bottom:82px;}
+    .website-pro-hero-trust{font-size:12px;}
+    .website-pro-about,
+    .website-pro-purpose article,
+    .website-pro-features,
+    .website-pro-programs,
+    .website-pro-showcase,
+    .website-pro-gallery-preview,
+    .website-pro-testimonials,
+    .website-pro-final-cta,
+    .website-pro-footer,
+    .website-pro-about-page,
+    .website-pro-directory,
+    .website-pro-gallery-page,
+    .website-pro-contact-page{padding-left:var(--sw-mobile-safe-x)!important;padding-right:var(--sw-mobile-safe-x)!important;}
+    .website-pro-feature-grid,
+    .website-pro-teacher-preview,
+    .website-pro-teacher-grid,
+    .website-pro-gallery-grid,
+    .website-pro-testimonials>div,
+    .website-pro-footer-grid{grid-template-columns:1fr!important;}
+    .website-pro-gallery-mosaic{grid-template-columns:1fr!important;grid-auto-rows:auto!important;}
+    .website-pro-gallery-mosaic figure,
+    .website-pro-gallery-mosaic figure.is-featured{grid-column:auto!important;min-height:230px;}
+    .website-pro-final-cta .website-pro-button{width:100%;}
+    .website-pro-footer-bottom{align-items:flex-start;}
+}
+@media(max-width:420px){
+    .website-pro-slide-content h1{font-size:34px;}
+    .website-pro-hero-actions{width:100%;}
+    .website-pro-button{padding-right:16px;padding-left:16px;}
+    .website-pro-nav{right:12px;left:12px;}
+}

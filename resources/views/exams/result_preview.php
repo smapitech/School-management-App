@@ -1,0 +1,369 @@
+<?php include __DIR__ . '/nav.php'; ?>
+
+<?php
+    $formatNumber = static function (?float $value, int $precision = 2): string {
+        if ($value === null) {
+            return '-';
+        }
+
+        $formatted = number_format($value, $precision, '.', '');
+        return rtrim(rtrim($formatted, '0'), '.');
+    };
+
+    $students = (array) ($students ?? []);
+    $summary = (array) ($summary ?? []);
+    $warnings = (array) ($warnings ?? []);
+    $selectedStudent = $selectedStudent ?? null;
+    $selectedStudentId = (int) ($selectedStudentId ?? 0);
+    $selectedStudentData = $selectedStudent['student'] ?? [];
+    $selectedStudentSummary = $selectedStudent['summary'] ?? [];
+    $selectedAttendance = $selectedStudent['attendance'] ?? [];
+    $studentReports = (array) ($studentReports ?? []);
+    $distributionRows = array_values((array) ($distributions ?? []));
+    $detailedReports = [];
+    if ($selectedStudentId > 0 && isset($studentReports[$selectedStudentId])) {
+        $detailedReports = [$selectedStudentId => $studentReports[$selectedStudentId]];
+    } elseif ($selectedStudentId > 0 && $selectedStudent) {
+        $detailedReports = [$selectedStudentId => $selectedStudent];
+    } else {
+        $detailedReports = $studentReports;
+    }
+
+    $distributionMap = [];
+    foreach ($distributionRows as $distributionRow) {
+        $distributionId = (int) ($distributionRow['id'] ?? 0);
+        if ($distributionId > 0) {
+            $distributionMap[$distributionId] = $distributionRow;
+        }
+    }
+    $selectedStudentQuery = $selectedStudentId > 0
+        ? http_build_query([
+            'class_name' => $className ?? ($filters['class_name'] ?? ''),
+            'section' => $section ?? ($filters['section'] ?? ''),
+            'school_term' => $schoolTerm ?? ($filters['school_term'] ?? ''),
+            'school_session' => $schoolSession ?? ($filters['school_session'] ?? ''),
+            'student_id' => $selectedStudentId,
+            'template_id' => (int) ($filters['template_id'] ?? 0),
+        ])
+        : '';
+    $selectedStudentPrintQuery = $selectedStudentQuery !== '' ? $selectedStudentQuery . '&auto_print=1' : '';
+?>
+
+<section class="module-hero report-sheet-shell no-print">
+    <div>
+        <p class="eyebrow">Result preview</p>
+        <h2><?= e($school['name'] ?? 'Result Preview') ?></h2>
+        <p>Review class results and individual report sheets before printing or sharing them.</p>
+    </div>
+</section>
+
+<section class="panel no-print">
+    <div class="panel-header">
+        <div>
+            <p class="eyebrow">Filters</p>
+            <h3>Choose class, term, session, student, and template</h3>
+        </div>
+    </div>
+    <form class="student-search-form" method="get" action="/exams/result-preview">
+        <label>
+            <span>Class</span>
+            <select name="class_name" required>
+                <option value="">Class</option>
+                <?php foreach ((array) $classOptions as $class): ?>
+                    <option value="<?= e($class) ?>" <?= ($filters['class_name'] ?? '') === $class ? 'selected' : '' ?>><?= e($class) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label>
+            <span>Section</span>
+            <select name="section" required>
+                <option value="">Section</option>
+                <?php foreach ((array) $sections as $sectionOption): ?>
+                    <option value="<?= e($sectionOption) ?>" <?= ($filters['section'] ?? '') === $sectionOption ? 'selected' : '' ?>><?= e($sectionOption) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label>
+            <span>Term</span>
+            <select name="school_term" required>
+                <option value="">Term</option>
+                <?php foreach ((array) $schoolTerms as $term): ?>
+                    <option value="<?= e($term) ?>" <?= ($filters['school_term'] ?? '') === $term ? 'selected' : '' ?>><?= e($term) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label>
+            <span>Session</span>
+            <select name="school_session" required>
+                <option value="">Session</option>
+                <?php foreach ((array) $schoolSessions as $sessionOption): ?>
+                    <option value="<?= e($sessionOption) ?>" <?= ($filters['school_session'] ?? '') === $sessionOption ? 'selected' : '' ?>><?= e($sessionOption) ?></option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <label>
+            <span>Student</span>
+            <select name="student_id">
+                <option value="0">All students</option>
+                <?php if (!empty($students)): ?>
+                    <?php foreach ((array) $students as $studentRow): ?>
+                        <option value="<?= e($studentRow['student_id']) ?>" <?= (int) ($filters['student_id'] ?? 0) === (int) $studentRow['student_id'] ? 'selected' : '' ?>>
+                            <?= e($studentRow['full_name'] ?? '') ?> (<?= e($studentRow['registration_no'] ?: $studentRow['roll_number']) ?>)
+                        </option>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <option value="">Load the class first</option>
+                <?php endif; ?>
+            </select>
+        </label>
+        <label>
+            <span>Template</span>
+            <select name="template_id">
+                <option value="0" <?= (int) ($filters['template_id'] ?? 0) === 0 ? 'selected' : '' ?>>Default report sheet</option>
+                <?php foreach ((array) $templates as $templateOption): ?>
+                    <option value="<?= e($templateOption['id']) ?>" <?= (int) ($filters['template_id'] ?? 0) === (int) $templateOption['id'] ? 'selected' : '' ?>>
+                        <?= e($templateOption['name']) ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </label>
+        <button type="submit">Load Preview</button>
+    </form>
+</section>
+
+<?php if (!$filtersComplete): ?>
+    <section class="panel empty-state no-print">
+        <h3>Select class, section, term, and session</h3>
+        <p>Use the filters above to build the class result preview.</p>
+    </section>
+<?php endif; ?>
+
+<?php foreach ((array) ($warnings ?? []) as $warning): ?>
+    <div class="alert-error no-print report-sheet-warning"><?= e($warning) ?></div>
+<?php endforeach; ?>
+
+<?php if ($notice !== ''): ?>
+    <div class="alert-success no-print"><?= e($notice) ?></div>
+<?php endif; ?>
+
+<?php if ($filtersComplete && !empty($summary)): ?>
+    <section class="result-preview-stats no-print">
+        <article class="result-preview-stat">
+            <span>Total Students</span>
+            <strong><?= e($summary['student_count'] ?? 0) ?></strong>
+        </article>
+        <article class="result-preview-stat">
+            <span>Completed Marks</span>
+            <strong><?= e($summary['completed_count'] ?? 0) ?></strong>
+        </article>
+        <article class="result-preview-stat">
+            <span>Missing Marks</span>
+            <strong><?= e($summary['missing_count'] ?? 0) ?></strong>
+        </article>
+        <article class="result-preview-stat">
+            <span>Average Score</span>
+            <strong><?= $summary['average_score'] !== null ? e($formatNumber((float) $summary['average_score'])) . '%' : '-' ?></strong>
+        </article>
+        <article class="result-preview-stat">
+            <span>Pass Count</span>
+            <strong><?= e($summary['pass_count'] ?? 0) ?></strong>
+        </article>
+        <article class="result-preview-stat">
+            <span>Fail Count</span>
+            <strong><?= e($summary['fail_count'] ?? 0) ?></strong>
+        </article>
+    </section>
+<?php endif; ?>
+
+<?php if ($selectedStudentData): ?>
+    <section class="result-preview-card no-print">
+        <div class="result-preview-toolbar">
+            <div>
+                <p class="eyebrow">Selected student</p>
+                <h3><?= e($selectedStudentData['full_name'] ?? '') ?></h3>
+            </div>
+            <div class="preview-links">
+                <a class="secondary-action" href="/exams/result-preview/student?<?= e($selectedStudentQuery) ?>">Preview Student Report Sheet</a>
+                <a class="secondary-action" href="/exams/result-preview/student?<?= e($selectedStudentPrintQuery) ?>">Print Report Sheet</a>
+            </div>
+        </div>
+        <div class="print-meta">
+            <span>Register No: <?= e($selectedStudentData['registration_no'] ?? '') ?></span>
+            <span>Roll Number: <?= e($selectedStudentData['roll_number'] ?? $selectedStudentData['registration_no'] ?? '') ?></span>
+            <span>Result: <?= e($selectedStudentSummary['result_status'] ?? 'No marks') ?></span>
+            <span>GPA: <?= array_key_exists('gpa', $selectedStudentSummary) && $selectedStudentSummary['gpa'] !== null ? e($formatNumber((float) $selectedStudentSummary['gpa'])) : '-' ?></span>
+            <span>Attendance: <?= !empty($selectedAttendance['available']) ? e($formatNumber((float) ($selectedAttendance['percentage'] ?? 0))) . '%' : 'Not available' ?></span>
+            <span>Teacher Comment: <?= e($selectedStudent['teacherCommentStatus'] ?? 'Pending') ?></span>
+        </div>
+        <?php if (!empty($selectedStudent['warnings'])): ?>
+            <?php foreach ((array) $selectedStudent['warnings'] as $selectedWarning): ?>
+                <p class="report-sheet-note"><?= e($selectedWarning) ?></p>
+            <?php endforeach; ?>
+        <?php endif; ?>
+    </section>
+
+<?php if ($filtersComplete && !empty($detailedReports)): ?>
+    <section class="panel no-print">
+        <div class="panel-header">
+            <div>
+                <p class="eyebrow">Detailed result breakdown</p>
+                <h3>Subjects, tests, assignments, totals, grades, and remarks</h3>
+                <p class="report-sheet-note">These rows are generated from the real exam marks saved under Exam Mark and Mark Distribution. No sample marks are used here.</p>
+            </div>
+        </div>
+        <?php foreach ($detailedReports as $report): ?>
+            <?php
+                $reportStudent = (array) ($report['student'] ?? []);
+                $reportSubjects = array_values((array) ($report['subjects'] ?? []));
+                $reportSummary = (array) ($report['summary'] ?? []);
+                $reportName = trim((string) ($reportStudent['full_name'] ?? $reportStudent['applicant'] ?? 'Student'));
+                $reportReg = trim((string) ($reportStudent['registration_no'] ?? $reportStudent['roll_number'] ?? ''));
+                $reportStatus = trim((string) ($reportSummary['result_status'] ?? 'No marks'));
+                $dynamicDistributionRows = $distributionRows;
+                if (!$dynamicDistributionRows) {
+                    $seenDistributionIds = [];
+                    foreach ($reportSubjects as $subjectRow) {
+                        foreach ((array) ($subjectRow['distribution_marks'] ?? []) as $distributionMark) {
+                            $distributionId = (int) ($distributionMark['distribution_id'] ?? 0);
+                            if ($distributionId <= 0 || isset($seenDistributionIds[$distributionId])) {
+                                continue;
+                            }
+                            $seenDistributionIds[$distributionId] = true;
+                            $dynamicDistributionRows[] = [
+                                'id' => $distributionId,
+                                'name' => trim((string) ($distributionMark['name'] ?? ('Mark ' . $distributionId))),
+                                'max_mark' => $distributionMark['max_mark'] ?? '',
+                            ];
+                        }
+                    }
+                }
+            ?>
+            <div class="result-preview-card" style="margin-top: 18px;">
+                <div class="result-preview-toolbar">
+                    <div>
+                        <p class="eyebrow">Student result</p>
+                        <h3><?= e($reportName) ?></h3>
+                    </div>
+                    <div class="print-meta">
+                        <span>Register No: <?= e($reportReg ?: '-') ?></span>
+                        <span>Status: <?= e($reportStatus) ?></span>
+                        <span>Total: <?= e($formatNumber((float) ($reportSummary['grand_total'] ?? 0))) ?>/<?= e($formatNumber((float) ($reportSummary['grand_total_obtainable'] ?? 0))) ?></span>
+                        <span>Average: <?= isset($reportSummary['average_percentage']) && $reportSummary['average_percentage'] !== null ? e($formatNumber((float) $reportSummary['average_percentage'])) . '%' : '-' ?></span>
+                    </div>
+                </div>
+
+                <div class="table-wrap result-preview-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Subject</th>
+                                <?php foreach ($dynamicDistributionRows as $distribution): ?>
+                                    <th><?= e($distribution['name'] ?? 'Mark') ?><br><small><?= e((string) ($distribution['max_mark'] ?? '')) ?></small></th>
+                                <?php endforeach; ?>
+                                <th>Total</th>
+                                <th>Average %</th>
+                                <th>Grade</th>
+                                <th>Point</th>
+                                <th>Remark</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($reportSubjects as $subjectRow): ?>
+                                <tr>
+                                    <td><?= e($subjectRow['subject_name'] ?? 'Subject') ?></td>
+                                    <?php foreach ($dynamicDistributionRows as $distribution): ?>
+                                        <?php
+                                            $distributionId = (int) ($distribution['id'] ?? 0);
+                                            $distributionMarks = (array) ($subjectRow['distribution_marks'] ?? []);
+                                            $markCell = $distributionId > 0 && isset($distributionMarks[$distributionId])
+                                                ? ($distributionMarks[$distributionId]['display'] ?? '-')
+                                                : '-';
+                                        ?>
+                                        <td><?= e((string) $markCell) ?></td>
+                                    <?php endforeach; ?>
+                                    <td><?= e($formatNumber((float) ($subjectRow['total'] ?? 0))) ?>/<?= e($formatNumber((float) ($subjectRow['obtainable'] ?? 0))) ?></td>
+                                    <td><?= isset($subjectRow['percentage']) && $subjectRow['percentage'] !== null ? e($formatNumber((float) $subjectRow['percentage'])) . '%' : '-' ?></td>
+                                    <td><?= e((string) ($subjectRow['grade'] ?? '-')) ?></td>
+                                    <td><?= isset($subjectRow['point']) ? e($formatNumber((float) $subjectRow['point'])) : '-' ?></td>
+                                    <td><?= e((string) ($subjectRow['remark'] ?? '-')) ?></td>
+                                    <td><span class="status"><?= e((string) ($subjectRow['status'] ?? 'No marks')) ?></span></td>
+                                </tr>
+                            <?php endforeach; ?>
+                            <?php if (empty($reportSubjects)): ?>
+                                <tr>
+                                    <td colspan="<?= e((string) (count($dynamicDistributionRows) + 7)) ?>">No subject result rows were found for this student. Confirm that Exam Mark was saved for the selected class, section, term, and session.</td>
+                                </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        <?php endforeach; ?>
+    </section>
+<?php endif; ?>
+
+<?php endif; ?>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <p class="eyebrow">Class result</p>
+            <h3><?= e(trim(($className ?? ($filters['class_name'] ?? '')) . ' ' . ($section ?? ($filters['section'] ?? '')))) ?> - <?= e(($schoolTerm ?? ($filters['school_term'] ?? '')) . ' ' . ($schoolSession ?? ($filters['school_session'] ?? ''))) ?></h3>
+        </div>
+    </div>
+    <div class="table-wrap result-preview-table">
+        <table>
+            <thead>
+                <tr>
+                    <th>Student Name</th>
+                    <th>Register No</th>
+                    <th>Total Score</th>
+                    <th>Average Percentage</th>
+                    <th>Grade</th>
+                    <th>Result Status</th>
+                    <th>Attendance Percentage</th>
+                    <th>Teacher Comment Status</th>
+                    <th class="no-print">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ((array) $students as $studentRow): ?>
+                    <?php
+                        $rowQuery = http_build_query([
+                            'class_name' => $className ?? ($filters['class_name'] ?? ''),
+                            'section' => $section ?? ($filters['section'] ?? ''),
+                            'school_term' => $schoolTerm ?? ($filters['school_term'] ?? ''),
+                            'school_session' => $schoolSession ?? ($filters['school_session'] ?? ''),
+                            'student_id' => (int) ($studentRow['student_id'] ?? 0),
+                            'template_id' => (int) ($filters['template_id'] ?? 0),
+                        ]);
+                        $rowPrintQuery = $rowQuery . '&auto_print=1';
+                        $attendanceText = array_key_exists('attendance_percentage', $studentRow) && $studentRow['attendance_percentage'] !== null
+                            ? $formatNumber((float) $studentRow['attendance_percentage']) . '%'
+                            : 'Attendance not available';
+                    ?>
+                    <tr class="<?= !empty($studentRow['is_selected']) ? 'is-selected' : '' ?>">
+                        <td><?= e($studentRow['full_name'] ?? '') ?></td>
+                        <td><?= e($studentRow['registration_no'] ?? ($studentRow['roll_number'] ?? '-')) ?></td>
+                        <td><?= (($studentRow['result_status'] ?? '') === 'No marks') ? '-' : e($formatNumber((float) ($studentRow['total'] ?? 0))) ?></td>
+                        <td><?= (($studentRow['result_status'] ?? '') === 'No marks' || !array_key_exists('average_percentage', $studentRow) || $studentRow['average_percentage'] === null) ? '-' : e($formatNumber((float) $studentRow['average_percentage'])) . '%' ?></td>
+                        <td><?= (($studentRow['result_status'] ?? '') === 'No marks') ? '-' : e($studentRow['grade'] ?: '-') ?></td>
+                        <td><span class="status"><?= e($studentRow['result_status'] ?? 'No marks') ?></span></td>
+                        <td><?= e($attendanceText) ?></td>
+                        <td><?= e($studentRow['teacher_comment_status'] ?? 'Pending') ?></td>
+                        <td class="row-actions no-print">
+                            <a href="/exams/result-preview/student?<?= e($rowQuery) ?>">Preview</a>
+                            <a href="/exams/result-preview/student?<?= e($rowPrintQuery) ?>">Print</a>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                <?php if (empty($students)): ?>
+                    <tr>
+                        <td colspan="9">No students are currently assigned to this class preview.</td>
+                    </tr>
+                <?php endif; ?>
+            </tbody>
+        </table>
+    </div>
+</section>
